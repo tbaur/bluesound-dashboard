@@ -1,7 +1,6 @@
 # Dependabot keeps dependencies current. Frontend npm and backend pip are updated
-# separately; github-actions are grouped weekly. Patch/minor dev deps are batched;
-# major bumps arrive as individual PRs for deliberate migration (same pattern as
-# homebridge-myleviton / homebridge-myresideo).
+# separately; github-actions are grouped weekly. Updates are grouped to reduce PR
+# noise (same pattern as homebridge-myleviton / homebridge-myresideo).
 # See: https://docs.github.com/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
 
 version: 2
@@ -15,7 +14,10 @@ updates:
       prefix: "chore"
       prefix-development: "chore"
     groups:
-      dev-dependencies:
+      # Batch only low-risk patch/minor updates so they stay easy to review.
+      # Major bumps (e.g. vite, eslint, typescript, vitest) arrive as their own
+      # PRs and get evaluated and migrated deliberately.
+      frontend:
         patterns:
           - "*"
         update-types:
@@ -38,3 +40,12 @@ updates:
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore"
+    groups:
+      backend:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
