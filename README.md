@@ -1,40 +1,39 @@
 # Bluesound Dashboard
 
-Consolidated LAN dashboard for Bluesound / BluOS players. Discovers devices on the network (mDNS + LSDP), and exposes the core [bluesound-controller](https://github.com/tbaur/bluesound-controller) control surface through a live web UI.
+Consolidated LAN dashboard for Bluesound / BluOS players. Discovers devices on the network (mDNS + LSDP) and exposes playback, volume, queue, inputs, presets, Bluetooth, and multi-room controls through a live web UI.
+
+Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controller). This dashboard is self-contained (no runtime dependency on the CLI).
 
 ## Features
 
 - **Discovery** on page load, on demand, and automatic re-scan when the fleet is empty
-- **Live fleet** via server-side poller + SSE (REST fallback every 5s when SSE reconnects)
+- **Live fleet** via server-side poller + SSE (REST fallback when SSE reconnects)
 - **Playback** play / pause / stop / skip / back / toggle
-- **Volume** absolute level, relative adjust (+/− delta), mute (per-player and house-wide)
+- **Volume** absolute level, relative adjust (+/−), mute (per-player and house-wide)
 - **Queue** view / clear / reorder
 - **Inputs**, **presets**, **Bluetooth** modes
-- **Multi-room groups** link rooms, add/remove followers, group-all (`sync enable`), ungroup all
-- **Diagnostics** per-player status + uptime; hard/soft reboot
-- **Ops** `healthz` (degraded when poller stopped), `readyz`, structured logs, release-please releases
+- **Multi-room groups** create groups, add/remove followers, group all, ungroup all
+- **Diagnostics** per-player status + uptime; hard/soft reboot (API)
+- **Ops** health / readiness endpoints, structured logs, automated releases — see [docs/RUNBOOK.md](docs/RUNBOOK.md)
 
-### [bluesound-controller](https://github.com/tbaur/bluesound-controller) parity
+## Requirements
 
-| Capability | Controller CLI | Dashboard API | Dashboard UI |
-|------------|----------------|---------------|--------------|
-| play / pause / stop / skip / back | yes | yes | yes |
-| toggle | yes | yes | yes (detail play button) |
-| absolute volume | yes | yes | yes |
-| relative volume (+/−) | yes | yes | via API (`/volume/adjust`) |
-| mute / fleet mute | yes | yes | yes |
-| queue / inputs / presets / bluetooth | yes | yes | yes (detail page) |
-| multi-room add/remove/break | yes | yes | yes (fleet sync panel + detail leave) |
-| sync enable (group all) | yes | yes | via API (`/sync/enable`) |
-| diagnose | yes | yes | via API (`/diagnose`) |
-| reboot / soft reboot | yes | yes | via API (`/reboot`) |
+- Python 3.10+ (CI uses 3.12)
+- Node.js 22+
+- Same LAN as your Bluesound players (discovery and control stay on the local network)
 
 ## Quick start
 
+Two terminals:
+
 ```bash
+# Terminal 1 — API
 cd backend && python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]" && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
 
+```bash
+# Terminal 2 — UI
 cd frontend && npm ci && npm run dev
 ```
 
@@ -48,6 +47,7 @@ Configuration and network exposure: [docs/CONFIGURATION.md](docs/CONFIGURATION.m
 
 - [Configuration](docs/CONFIGURATION.md) — environment variables and network exposure
 - [Runbook](docs/RUNBOOK.md) — start, health, failures, logs
+- [Changelog](CHANGELOG.md) — version history
 - [Security](SECURITY.md) — vulnerability reporting
 - [Releasing](RELEASING.md)
 - [Contributing](CONTRIBUTING.md)
