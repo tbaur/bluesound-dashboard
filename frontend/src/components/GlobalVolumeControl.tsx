@@ -27,15 +27,14 @@ function GlobalVolumePanel() {
 
   const fleetMedian = medianVolume(devices.map((d) => d.volume));
   const [draft, setDraft] = useState(fleetMedian);
+  const [trackedMedian, setTrackedMedian] = useState(fleetMedian);
   const volumesMatch =
     devices.length > 0 && devices.every((d) => d.volume === devices[0].volume);
 
-  useEffect(() => {
-    if (!dragging && !pending) {
-      setDraft(fleetMedian);
-      latestLevel.current = fleetMedian;
-    }
-  }, [fleetMedian, dragging, pending]);
+  if (!dragging && !pending && fleetMedian !== trackedMedian) {
+    setTrackedMedian(fleetMedian);
+    setDraft(fleetMedian);
+  }
 
   useEffect(() => {
     latestLevel.current = draft;

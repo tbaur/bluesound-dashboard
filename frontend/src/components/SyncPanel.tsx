@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { api } from '@/api/client';
 import type { PlayerStatus, SyncGroup, SyncState } from '@/api/types';
 import { useFleetStore } from '@/store/fleetStore';
@@ -80,14 +80,10 @@ export function SyncPanel() {
     [devices, sync, groups, leadId],
   );
 
-  // If the draft lead is now in a real set, drop the builder without a blank gap.
-  useEffect(() => {
-    if (!creating || !leadId) return;
-    if (occupiedRoomIds(groups).has(leadId)) {
-      setCreating(false);
-      setLeadId('');
-    }
-  }, [groups, leadId, creating]);
+  if (creating && leadId && occupiedRoomIds(groups).has(leadId)) {
+    setCreating(false);
+    setLeadId('');
+  }
 
   if (devices.length < 2) return null;
 

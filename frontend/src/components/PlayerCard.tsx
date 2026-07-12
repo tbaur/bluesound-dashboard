@@ -44,6 +44,7 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
   const latestLevel = useRef(device.volume);
   const [dragging, setDragging] = useState(false);
   const [localVolume, setLocalVolume] = useState(device.volume);
+  const [trackedVolume, setTrackedVolume] = useState(device.volume);
 
   const volumesLinked =
     devices.length > 1 && devices.every((d) => d.volume === devices[0].volume);
@@ -52,9 +53,13 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
   const playing = isPlaying(device.state);
   const np = nowPlaying(device);
 
+  if (!dragging && device.volume !== trackedVolume) {
+    setTrackedVolume(device.volume);
+    setLocalVolume(device.volume);
+  }
+
   useEffect(() => {
     if (!dragging) {
-      setLocalVolume(device.volume);
       latestLevel.current = device.volume;
     }
   }, [device.volume, dragging]);
