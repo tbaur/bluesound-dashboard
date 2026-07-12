@@ -1,0 +1,102 @@
+"""Typed configuration with fail-fast validation."""
+
+from __future__ import annotations
+
+from functools import lru_cache
+from ipaddress import IPv4Address, ip_address
+from typing import Literal
+
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+DiscoveryMethod = Literal["mdns", "lsdp", "both"]
+
+
+class Settings(BaseSettings):
+    """Environment-backed settings. Prefix: BSD_."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="BSD_",
+        env_file=".env",
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+    host: str = "127.0.0.1"
+    port: int = Field(default=8000, ge=1, le=65535)
+    log_level: str = "INFO"
+    cors_origins: str = "http://localhost:5173"
+
+    discovery_method: DiscoveryMethod = "both"
+    discovery_timeout: float = Field(default=5.0, ge=1.0, le=60.0)
+    discovery_cache_ttl: float = Field(default=300.0, ge=0.0, le=3600.0)
+    empty_fleet_rediscovery_seconds: float = Field(default=30.0, ge=5.0, le=600.0)
+    allow_non_private_ips: bool = False
+
+    poll_interval: float = Field(default=3.0, ge=1.0, le=60.0)
+    device_http_timeout: float = Field(default=3.0, ge=0.5, le=30.0)
+    max_concurrent_device_calls: int = Field(default=20, ge=1, le=50)
+    control_rate_limit_seconds: float = Field(default=0.1, ge=0.0, le=5.0)
+    api_rate_limit_seconds: float = Field(default=0.05, ge=0.0, le=5.0)
+
+    enable_openapi: bool | None = None
+
+    circuit_failure_threshold: int = Field(default=5, ge=1, le=100)
+    circuit_slow_poll_seconds: float = Field(default=15.0, ge=3.0, le=300.0)
+    discovered_grace_ttl: float = Field(default=60.0, ge=0.0, le=600.0)
+    sse_keepalive_seconds: float = Field(default=15.0, ge=0.1, le=120.0)
+
+    max_xml_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
+    max_xml_depth: int = Field(default=20, ge=2, le=100)
+    max_xml_elements: int = Field(default=10_000, ge=100, le=100_000)
+
+    bluos_port: int = Field(default=11000, ge=1, le=65535)
+    mdns_service: str = "_musc._tcp.local."
+    static_dir: str = ""
+
+    @field_validator("host")
+    @classmethod
+    def validate_host(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("host must not be empty")
+        if value in {"0.0.0.0", "::", "localhost"}:
+            return value
+        try:
+            ip_address(value)
+        except ValueError as exc:
+            raise ValueError(f"invalid bind host: {value}") from exc
+        return value
+
+    @field_validator("log_level")
+    @classmethod
+    def validate_log_level(cls, value: str) -> str:
+        level = value.upper().strip()
+        allowed = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+        if level not in allowed:
+            raise ValueError(f"log_level must be one of {sorted(allowed)}")
+        return level
+
+    def cors_origin_list(self) -> list[str]:
+        return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def openapi_enabled(self) -> bool:
+        if self.enable_openapi is not None:
+            return self.enable_openapi
+        return self.host in {"127.0.0.1", "localhost", "::1"}
+
+    def is_allowed_device_ip(self, ip: str) -> bool:
+        try:
+            addr = ip_address(ip)
+        except ValueError:
+            return False
+        if not isinstance(addr, IPv4Address):
+            return False
+        if self.allow_non_private_ips:
+            return not (addr.is_loopback or addr.is_multicast or addr.is_unspecified)
+        return addr.is_private and not addr.is_loopback
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()

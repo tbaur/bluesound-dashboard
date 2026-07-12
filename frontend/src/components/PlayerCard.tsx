@@ -1,0 +1,239 @@
+import { Link } from 'react-router-dom';
+import { api } from '@/api/client';
+import type { PlayerStatus } from '@/api/types';
+import { useFleetStore } from '@/store/fleetStore';
+import { useEffect, useMemo, useRef, useState } from 'react';
+
+function isPlaying(state: string): boolean {
+  return state === 'play' || state === 'stream';
+}
+
+function isIdle(device: PlayerStatus): boolean {
+  if (device.track.trim()) return false;
+  return device.state === 'stop' || device.state === '' || device.state === 'pause';
+}
+
+function nowPlaying(device: PlayerStatus): { primary: string; secondary: string; idle: boolean } {
+  if (isIdle(device) && !device.track.trim()) {
+    const state =
+      device.state === 'pause' ? 'Paused' : device.state === 'stop' || !device.state ? 'Idle' : device.state;
+    return {
+      primary: state,
+      secondary: device.service && device.service !== 'Library/Input' ? device.service : '',
+      idle: true,
+    };
+  }
+  const primary = device.track || (isPlaying(device.state) ? 'Playing' : 'Paused');
+  const secondary = [device.artist, device.service].filter(Boolean).join(' · ');
+  return { primary, secondary, idle: false };
+}
+
+function primaryNameFor(device: PlayerStatus, devices: PlayerStatus[]): string | null {
+  if (device.sync_role !== 'synced' || !device.master) return null;
+  const primary = devices.find((d) => d.ip === device.master);
+  return primary?.name ?? device.master;
+}
+
+/** Compact fixed-column fleet row — keeps controls aligned across players. */
+export function PlayerRow({ device }: { device: PlayerStatus }) {
+  const devices = useFleetStore((s) => s.devices);
+  const control = useFleetStore((s) => s.control);
+  const toggleMute = useFleetStore((s) => s.toggleMute);
+  const holdVolume = useFleetStore((s) => s.holdVolume);
+  const commitTimer = useRef<number | undefined>(undefined);
+  const latestLevel = useRef(device.volume);
+  const [dragging, setDragging] = useState(false);
+  const [localVolume, setLocalVolume] = useState(device.volume);
+
+  const volumesLinked =
+    devices.length > 1 && devices.every((d) => d.volume === devices[0].volume);
+  const follows = useMemo(() => primaryNameFor(device, devices), [device, devices]);
+  const synced = device.sync_role === 'synced';
+  const playing = isPlaying(device.state);
+  const np = nowPlaying(device);
+
+  useEffect(() => {
+    if (!dragging) {
+      setLocalVolume(device.volume);
+      latestLevel.current = device.volume;
+    }
+  }, [device.volume, dragging]);
+
+  const flushVolume = (level: number) => {
+    latestLevel.current = level;
+    void control(device.id, () => api.setVolume(device.id, level), { volume: level });
+  };
+
+  const onVolumeInput = (level: number) => {
+    latestLevel.current = level;
+    setLocalVolume(level);
+    if (commitTimer.current) window.clearTimeout(commitTimer.current);
+    commitTimer.current = window.setTimeout(() => {
+      commitTimer.current = undefined;
+      flushVolume(level);
+    }, 80);
+  };
+
+  const endDrag = () => {
+    setDragging(false);
+    if (commitTimer.current) {
+      window.clearTimeout(commitTimer.current);
+      commitTimer.current = undefined;
+    }
+    flushVolume(latestLevel.current);
+  };
+
+  const onMuteClick = () => {
+    if (device.muted) {
+      const restore =
+        useFleetStore.getState().lastAudibleVolume[device.id] ??
+        (localVolume > 0 ? localVolume : 20);
+      setLocalVolume(restore);
+      latestLevel.current = restore;
+    } else {
+      setLocalVolume(0);
+      latestLevel.current = 0;
+    }
+    void toggleMute(device.id);
+  };
+
+  return (
+    <div
+      className="fleet-row"
+      role="row"
+      data-sync={device.sync_role}
+      data-idle={np.idle ? 'true' : 'false'}
+    >
+      <div className="fleet-cell fleet-cell-player" role="cell">
+        <div className="fleet-player-line">
+          <span
+            className="status-dot"
+            data-online={device.status === 'online'}
+            aria-label={device.status}
+          />
+          <Link className="fleet-player-name" to={`/player/${device.id}`}>
+            {device.name}
+          </Link>
+        </div>
+        <div className="fleet-player-hardware">
+          {device.full_model || device.model || 'BluOS'}
+        </div>
+        <div className="fleet-player-meta">
+          {device.sync_role !== 'standalone' && (
+            <span className="badge" data-role={device.sync_role}>
+              {device.sync_role}
+            </span>
+          )}
+          <span className="fleet-player-ip">{device.ip}</span>
+        </div>
+      </div>
+
+      <div className="fleet-cell fleet-cell-playing" role="cell">
+        {synced && follows ? (
+          <div className="fleet-track fleet-follows" title={`Follows ${follows}`}>
+            Follows {follows}
+          </div>
+        ) : np.idle ? (
+          <div className="fleet-track fleet-idle">{np.primary}</div>
+        ) : (
+          <>
+            <div className="fleet-track" title={np.primary}>
+              {np.primary}
+            </div>
+            {np.secondary ? (
+              <div className="fleet-subtitle" title={np.secondary}>
+                {np.secondary}
+              </div>
+            ) : null}
+          </>
+        )}
+      </div>
+
+      <div
+        className="fleet-cell fleet-cell-transport"
+        role="cell"
+        aria-label={`Transport for ${device.name}`}
+      >
+        {synced ? (
+          <div className="fleet-synced-hint">
+            <button type="button" className="btn btn-compact" onClick={onMuteClick}>
+              {device.muted ? 'Unmute' : 'Mute'}
+            </button>
+          </div>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn btn-compact"
+              onClick={() => void control(device.id, () => api.back(device.id))}
+            >
+              Prev
+            </button>
+            <button
+              type="button"
+              className="btn btn-compact btn-primary"
+              onClick={() =>
+                void control(
+                  device.id,
+                  () => (playing ? api.pause(device.id) : api.play(device.id)),
+                  { state: playing ? 'pause' : 'play' },
+                )
+              }
+            >
+              {playing ? 'Pause' : 'Play'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-compact"
+              onClick={() =>
+                void control(device.id, () => api.stop(device.id), { state: 'stop' })
+              }
+            >
+              Stop
+            </button>
+            <button
+              type="button"
+              className="btn btn-compact"
+              onClick={() => void control(device.id, () => api.skip(device.id))}
+            >
+              Next
+            </button>
+            <button type="button" className="btn btn-compact" onClick={onMuteClick}>
+              {device.muted ? 'Unmute' : 'Mute'}
+            </button>
+          </>
+        )}
+      </div>
+
+      <div className="fleet-cell fleet-cell-volume" role="cell">
+        <input
+          id={`vol-${device.id}`}
+          type="range"
+          min={0}
+          max={100}
+          value={localVolume}
+          aria-label={`Volume for ${device.name}`}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={localVolume}
+          onPointerDown={() => {
+            setDragging(true);
+            holdVolume(device.id, 5000);
+          }}
+          onPointerUp={endDrag}
+          onPointerCancel={endDrag}
+          onChange={(e) => onVolumeInput(Number(e.target.value))}
+        />
+        <span className="volume-value">{localVolume}</span>
+        {volumesLinked ? (
+          <span className="volume-linked" title="All players share this volume">
+            link
+          </span>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+/** @deprecated Prefer PlayerRow — alias for older imports */
+export const PlayerCard = PlayerRow;
