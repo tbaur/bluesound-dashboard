@@ -49,6 +49,7 @@ export interface QueueResponse {
 export interface AudioInput {
   name: string;
   type: string;
+  id: string;
   selected: boolean;
 }
 

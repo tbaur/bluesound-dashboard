@@ -51,13 +51,13 @@ STATUS_TIDAL_CONNECT = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"
 """
 
 QUEUE = b"""<?xml version="1.0" encoding="UTF-8"?>
-<playlist>
-  <item>
+<playlist length="1">
+  <song id="1">
     <title>Track A</title>
-    <artist>Artist A</artist>
-    <album>Album A</album>
+    <art>Artist A</art>
+    <alb>Album A</alb>
     <service>Spotify</service>
-  </item>
+  </song>
 </playlist>
 """
 
@@ -69,11 +69,12 @@ PRESETS = b"""<?xml version="1.0" encoding="UTF-8"?>
 </presets>
 """
 
-INPUTS = b"""<?xml version="1.0" encoding="UTF-8"?>
-<inputs>
-  <input selected="1">
-    <name>Optical</name>
-    <type>optical</type>
-  </input>
-</inputs>
+CAPTURE_SETTINGS = b"""<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+  <menuGroup id="capture" displayName="Inputs"/>
+  <menuGroup id="capture-input0" displayName="Analog Input" icon="/images/capture/ic_analoginput.png"/>
+  <menuGroup id="capture-input1" displayName="Optical Input" icon="/images/capture/ic_opticalinput.png"/>
+  <menuGroup id="capture-input2" displayName="HDMI ARC" icon="/images/capture/ic_tv.png"/>
+  <setting id="bluetoothAutoplay" value="3"/>
+</settings>
 """

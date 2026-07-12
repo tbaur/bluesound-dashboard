@@ -24,24 +24,28 @@ export function PlayerDetailPage() {
     if (!id) return;
     let cancelled = false;
     (async () => {
-      try {
-        const [q, i, p, b] = await Promise.all([
-          api.getQueue(id),
-          api.getInputs(id),
-          api.getPresets(id),
-          api.getBluetooth(id),
-        ]);
-        if (cancelled) return;
-        setQueue(q);
-        setInputs(i);
-        setPresets(p);
-        setBluetooth(b.mode);
-        setDetailError(null);
-      } catch (err) {
-        if (!cancelled) {
-          setDetailError(err instanceof Error ? err.message : 'Failed to load details');
-        }
-      }
+      const results = await Promise.allSettled([
+        api.getQueue(id),
+        api.getInputs(id),
+        api.getPresets(id),
+        api.getBluetooth(id),
+      ]);
+      if (cancelled) return;
+      const failures: string[] = [];
+      const [q, i, p, b] = results;
+      if (q.status === 'fulfilled') setQueue(q.value);
+      else failures.push('queue');
+      if (i.status === 'fulfilled') setInputs(i.value);
+      else failures.push('inputs');
+      if (p.status === 'fulfilled') setPresets(p.value);
+      else failures.push('presets');
+      if (b.status === 'fulfilled') setBluetooth(b.value.mode);
+      else failures.push('bluetooth');
+      setDetailError(
+        failures.length
+          ? `Failed to load: ${failures.join(', ')}`
+          : null,
+      );
     })();
     return () => {
       cancelled = true;
@@ -233,10 +237,10 @@ export function PlayerDetailPage() {
           <h2>Inputs</h2>
           <ul className="list">
             {inputs.map((input) => (
-              <li key={input.name} data-selected={input.selected}>
+              <li key={input.id || input.name} data-selected={input.selected}>
                 <span>
                   {input.name}
-                  <div className="card-meta">{input.type}</div>
+                  <div className="card-meta">{input.id || input.type}</div>
                 </span>
                 <button
                   type="button"
@@ -244,7 +248,7 @@ export function PlayerDetailPage() {
                   disabled={input.selected}
                   onClick={() =>
                     void control(device.id, async () => {
-                      await api.setInput(device.id, input.name);
+                      await api.setInput(device.id, input.id || input.name);
                       setInputs(await api.getInputs(device.id));
                     })
                   }

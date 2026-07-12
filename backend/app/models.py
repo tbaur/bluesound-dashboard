@@ -142,6 +142,7 @@ class QueueResponse(BaseModel):
 class AudioInput(BaseModel):
     name: str
     type: str = ""
+    id: str = ""
     selected: bool = False
 
 
