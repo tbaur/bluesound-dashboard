@@ -31,7 +31,7 @@ The backend applies:
 - Per-device and per-client rate limiting
 - XML size/depth/element caps
 - Pydantic input validation and HTTP security headers
-- Dependency auditing via Dependabot and `npm audit` in CI
+- Dependency auditing via Dependabot (npm, pip, GitHub Actions), CodeQL, and `npm audit` in CI
 
 Details and variable names: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
