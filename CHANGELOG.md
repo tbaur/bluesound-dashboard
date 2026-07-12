@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.2.1](https://github.com/tbaur/bluesound-dashboard/compare/v0.2.0...v0.2.1) (2026-07-12)
+
+
+### Bug Fixes
+
+* **frontend:** drop deprecated baseUrl from tsconfig ([#16](https://github.com/tbaur/bluesound-dashboard/issues/16)) ([0d64025](https://github.com/tbaur/bluesound-dashboard/commit/0d64025f74ae5718883232411a5803897b16a92a))
+
+
+### Documentation
+
+* tighten README and CONTRIBUTING for new users ([#18](https://github.com/tbaur/bluesound-dashboard/issues/18)) ([0994ce1](https://github.com/tbaur/bluesound-dashboard/commit/0994ce1a8413ff8499b66af151c0cb997569bf3e))
+
 ## [0.2.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.1.0...v0.2.0) (2026-07-12)
 
 
