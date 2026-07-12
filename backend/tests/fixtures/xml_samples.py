@@ -78,3 +78,16 @@ CAPTURE_SETTINGS = b"""<?xml version="1.0" encoding="UTF-8"?>
   <setting id="bluetoothAutoplay" value="3"/>
 </settings>
 """
+
+STATUS_CAPTURE_OPTICAL = b"""<?xml version="1.0" encoding="UTF-8"?>
+<status>
+  <state>stream</state>
+  <service>Capture</service>
+  <title1>Optical Input</title1>
+  <inputId>input1</inputId>
+  <inputTypeIndex>spdif-1</inputTypeIndex>
+  <streamUrl>Capture:spdif-input?id=input1</streamUrl>
+  <volume>8</volume>
+  <mute>0</mute>
+</status>
+"""

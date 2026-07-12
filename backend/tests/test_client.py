@@ -10,6 +10,7 @@ from tests.fixtures.xml_samples import (
     CAPTURE_SETTINGS,
     QUEUE,
     STATUS,
+    STATUS_CAPTURE_OPTICAL,
     STATUS_GROUP_VOLUME,
     STATUS_TIDAL_CONNECT,
     SYNC_STATUS,
@@ -122,14 +123,17 @@ async def test_get_inputs_and_bluetooth_from_capture_settings(settings: Settings
     respx.get("http://192.168.1.20:11000/Settings").mock(
         return_value=httpx.Response(200, content=CAPTURE_SETTINGS)
     )
+    respx.get("http://192.168.1.20:11000/Status").mock(
+        return_value=httpx.Response(200, content=STATUS)
+    )
     client = BluOSClient(settings)
     try:
         inputs = await client.get_inputs("192.168.1.20")
         assert inputs is not None
-        assert [(i.name, i.id) for i in inputs] == [
-            ("Analog Input", "analog-1"),
-            ("Optical Input", "spdif-1"),
-            ("HDMI ARC", "arc-1"),
+        assert [(i.name, i.id, i.selected) for i in inputs] == [
+            ("Analog Input", "analog-1", False),
+            ("Optical Input", "spdif-1", False),
+            ("HDMI ARC", "arc-1", False),
         ]
         mode = await client.get_bluetooth_mode("192.168.1.20")
         assert mode == "Disabled"
@@ -139,9 +143,33 @@ async def test_get_inputs_and_bluetooth_from_capture_settings(settings: Settings
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_get_inputs_marks_active_capture_input(settings: Settings) -> None:
+    respx.get("http://192.168.1.20:11000/Settings").mock(
+        return_value=httpx.Response(200, content=CAPTURE_SETTINGS)
+    )
+    respx.get("http://192.168.1.20:11000/Status").mock(
+        return_value=httpx.Response(200, content=STATUS_CAPTURE_OPTICAL)
+    )
+    client = BluOSClient(settings)
+    try:
+        inputs = await client.get_inputs("192.168.1.20")
+        assert inputs is not None
+        selected = [i for i in inputs if i.selected]
+        assert len(selected) == 1
+        assert selected[0].id == "spdif-1"
+        assert selected[0].name == "Optical Input"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_set_input_uses_input_type_index(settings: Settings) -> None:
     respx.get("http://192.168.1.20:11000/Settings").mock(
         return_value=httpx.Response(200, content=CAPTURE_SETTINGS)
+    )
+    respx.get("http://192.168.1.20:11000/Status").mock(
+        return_value=httpx.Response(200, content=STATUS)
     )
     route = respx.get("http://192.168.1.20:11000/Play").mock(
         return_value=httpx.Response(200, content=b"<ok/>")
@@ -187,6 +215,9 @@ async def test_settings_follows_port_redirect(settings: Settings) -> None:
     )
     respx.get("http://192.168.1.20:11001/Settings").mock(
         return_value=httpx.Response(200, content=CAPTURE_SETTINGS)
+    )
+    respx.get("http://192.168.1.20:11000/Status").mock(
+        return_value=httpx.Response(200, content=STATUS)
     )
     client = BluOSClient(settings)
     try:

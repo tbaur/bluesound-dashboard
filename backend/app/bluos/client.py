@@ -195,7 +195,7 @@ class BluOSClient:
         root = safe_parse_xml(status_xml, self.settings, ip)
         if root is None:
             return {}
-        service = text(root, "service", "Library/Input")
+        service = text(root, "service")
         service_name = text(root, "serviceName")
         if service == "Raat":
             service = "Roon"
@@ -216,6 +216,9 @@ class BluOSClient:
             "artist": text(root, "artist") or text(root, "title2"),
             "album": text(root, "album") or text(root, "title3"),
             "quality": text(root, "quality"),
+            "input_type_index": text(root, "inputTypeIndex"),
+            "input_id": text(root, "inputId"),
+            "service_id": service,
         }
 
     async def get_player_status(
@@ -428,6 +431,18 @@ class BluOSClient:
         root = safe_parse_xml(raw, self.settings, ip)
         if root is None:
             return None
+
+        active_type_index = ""
+        active_input_id = ""
+        active_name = ""
+        status_raw = await self._get(ip, "/Status")
+        if status_raw:
+            status = self._parse_status(status_raw, ip)
+            if status.get("service_id") == "Capture":
+                active_type_index = str(status.get("input_type_index") or "")
+                active_input_id = str(status.get("input_id") or "")
+                active_name = str(status.get("track") or "")
+
         inputs: list[AudioInput] = []
         type_counts: dict[str, int] = {}
         for group in root.iter("menuGroup"):
@@ -441,12 +456,18 @@ class BluOSClient:
             type_name = self._input_type_from_capture(name, icon)
             type_counts[type_name] = type_counts.get(type_name, 0) + 1
             type_index = f"{type_name}-{type_counts[type_name]}"
+            capture_key = group_id.removeprefix("capture-")
+            selected = bool(
+                (active_type_index and type_index == active_type_index)
+                or (active_input_id and capture_key == active_input_id)
+                or (active_name and name.lower() == active_name.lower())
+            )
             inputs.append(
                 AudioInput(
                     name=name,
                     type=type_name,
                     id=type_index,
-                    selected=False,
+                    selected=selected,
                 )
             )
         return inputs

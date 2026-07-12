@@ -235,6 +235,13 @@ export function PlayerDetailPage() {
 
         <section className="panel">
           <h2>Inputs</h2>
+          <p className="card-meta">
+            {inputs.some((i) => i.selected)
+              ? `Active: ${inputs.find((i) => i.selected)?.name}`
+              : device.service
+                ? `Source: ${device.service} (no physical input selected)`
+                : 'No physical input selected'}
+          </p>
           <ul className="list">
             {inputs.map((input) => (
               <li key={input.id || input.name} data-selected={input.selected}>
@@ -253,7 +260,7 @@ export function PlayerDetailPage() {
                     })
                   }
                 >
-                  Select
+                  {input.selected ? 'Active' : 'Select'}
                 </button>
               </li>
             ))}
