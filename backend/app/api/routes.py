@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Annotated
 
@@ -28,10 +29,12 @@ from app.models import (
     HealthResponse,
     InputRequest,
     MuteRequest,
+    PlayerStatus,
     QueueMoveRequest,
     RebootRequest,
     SettingWriteRequest,
     SyncEnableRequest,
+    SyncEnableResponse,
     SyncPairRequest,
     SyncState,
     UpgradeStatus,
@@ -67,14 +70,25 @@ def _require_device(state: AppState, device_id: str) -> str:
     return ip
 
 
+_pending_refresh: dict[str, asyncio.Task[object]] = {}
+
+
 def _schedule_refresh(state: AppState, device_id: str) -> None:
-    """Fire-and-forget status refresh with logged failures."""
-    task = asyncio.create_task(
+    """Coalesce fire-and-forget status refreshes per device."""
+    existing = _pending_refresh.get(device_id)
+    if existing is not None and not existing.done():
+        return
+
+    task: asyncio.Task[object] = asyncio.create_task(
         state.poller.refresh_one(device_id),
         name=f"refresh-{device_id}",
     )
+    _pending_refresh[device_id] = task
 
     def _done(done: asyncio.Task[object]) -> None:
+        current = _pending_refresh.get(device_id)
+        if current is done:
+            _pending_refresh.pop(device_id, None)
         try:
             exc = done.exception()
         except asyncio.CancelledError:
@@ -109,7 +123,7 @@ async def readyz(state: StateDep) -> HealthResponse:
             "last_poll_at": state.poller.last_poll_at,
             "last_error": state.poller.last_error,
             "sse_dropped_events": state.events.dropped_events,
-            "sse_subscribers": len(state.events._subscribers),
+            "sse_subscribers": state.events.subscriber_count,
         },
     )
 
@@ -444,9 +458,20 @@ async def fleet_firmware(state: StateDep) -> FleetFirmwareResponse:
 
 @router.get("/fleet/upgrades", response_model=FleetUpgradeResponse)
 async def fleet_upgrades(state: StateDep) -> FleetUpgradeResponse:
+    now = time.monotonic()
+    cached = state.fleet_upgrades_cache
+    if (
+        cached is not None
+        and (now - state.fleet_upgrades_cached_at) < state.fleet_upgrades_ttl_seconds
+    ):
+        return cached
+
     snapshot = await state.discovery.get_devices()
     if not snapshot.devices:
-        return FleetUpgradeResponse(updates_available=0, checked=0, failed=0, results=[])
+        empty = FleetUpgradeResponse(updates_available=0, checked=0, failed=0, results=[])
+        state.fleet_upgrades_cache = empty
+        state.fleet_upgrades_cached_at = now
+        return empty
 
     async def one(device) -> UpgradeStatus:
         if not state.settings.is_allowed_device_ip(device.ip):
@@ -469,12 +494,15 @@ async def fleet_upgrades(state: StateDep) -> FleetUpgradeResponse:
     results = list(await asyncio.gather(*(one(d) for d in snapshot.devices)))
     failed = sum(1 for r in results if not r.ok)
     updates = sum(1 for r in results if r.ok and r.update_available)
-    return FleetUpgradeResponse(
+    response = FleetUpgradeResponse(
         updates_available=updates,
         checked=len(results) - failed,
         failed=failed,
         results=results,
     )
+    state.fleet_upgrades_cache = response
+    state.fleet_upgrades_cached_at = now
+    return response
 
 
 @router.post("/devices/{device_id}/reboot", status_code=204)
@@ -629,8 +657,8 @@ async def sync_add(body: SyncPairRequest, state: StateDep) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/sync/enable", status_code=204)
-async def sync_enable(body: SyncEnableRequest, state: StateDep) -> Response:
+@router.post("/sync/enable", response_model=SyncEnableResponse)
+async def sync_enable(body: SyncEnableRequest, state: StateDep) -> SyncEnableResponse:
     """Group every other discovered player under one primary."""
     primary_ip = _require_device(state, body.primary_id)
     snapshot = await state.discovery.get_devices()
@@ -642,12 +670,13 @@ async def sync_enable(body: SyncEnableRequest, state: StateDep) -> Response:
         extra={"op": "sync_enable", "device_id": body.primary_id, "device_ip": primary_ip},
     )
 
-    async def link_slave(slave_id: str, slave_ip: str) -> bool:
-        return await state.client.add_sync_slave(primary_ip, slave_ip)
+    async def link_slave(slave: PlayerStatus) -> FleetVolumeResult:
+        ok = await state.client.add_sync_slave(primary_ip, slave.ip)
+        return FleetVolumeResult(device_id=slave.id, name=slave.name, ok=ok)
 
-    results = await asyncio.gather(*(link_slave(d.id, d.ip) for d in slaves))
-    failures = sum(1 for ok in results if not ok)
-    if failures == len(results):
+    link_results = list(await asyncio.gather(*(link_slave(d) for d in slaves)))
+    failures = sum(1 for r in link_results if not r.ok)
+    if failures == len(link_results):
         logger.warning(
             "control_failed",
             extra={"op": "sync_enable", "device_id": body.primary_id, "device_ip": primary_ip},
@@ -655,9 +684,12 @@ async def sync_enable(body: SyncEnableRequest, state: StateDep) -> Response:
         raise AppError(502, "sync_enable_failed", "Failed to enable sync group")
     affected = {body.primary_id, *(d.id for d in slaves)}
     await asyncio.gather(*(state.poller.refresh_one(device_id) for device_id in affected))
-    if failures:
-        raise AppError(502, "sync_enable_partial", f"Failed to add {failures} sync link(s)")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return SyncEnableResponse(
+        primary_id=body.primary_id,
+        succeeded=len(link_results) - failures,
+        failed=failures,
+        results=link_results,
+    )
 
 
 async def _clear_playback_after_leave(
@@ -792,6 +824,7 @@ async def events(request: Request, state: StateDep) -> StreamingResponse:
                 "data": {
                     "devices": [d.model_dump() for d in snapshot.devices],
                     "discovered_at": snapshot.discovered_at,
+                    "sync": build_sync_state(snapshot.devices).model_dump(),
                 },
             },
             default=str,

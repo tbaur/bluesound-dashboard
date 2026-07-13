@@ -20,7 +20,7 @@ def settings() -> Settings:
         poll_interval=60,
         allow_non_private_ips=True,
         control_rate_limit_seconds=0,
-        cors_origins="http://localhost:5173",
+        cors_origins="http://127.0.0.1:8765,http://localhost:8765",
     )
 
 
@@ -281,7 +281,10 @@ async def test_sync_add_enable_and_get(settings: Settings, monkeypatch: pytest.M
         assert add.status_code == 204
 
         enable = await http.post("/api/v1/sync/enable", json={"primary_id": "primary"})
-        assert enable.status_code == 204
+        assert enable.status_code == 200
+        body = enable.json()
+        assert body["succeeded"] >= 1
+        assert body["failed"] == 0
         assert client.add_sync_slave.await_count >= 2
     await client.aclose()
 

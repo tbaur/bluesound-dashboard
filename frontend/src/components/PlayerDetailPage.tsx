@@ -14,6 +14,43 @@ function formatClock(totalSeconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+function TrackProgress({
+  initialSecs,
+  totlen,
+  playing,
+}: {
+  initialSecs: number;
+  totlen: number;
+  playing: boolean;
+}) {
+  const [progressSecs, setProgressSecs] = useState(initialSecs);
+
+  useEffect(() => {
+    if (!playing) return undefined;
+    const timer = window.setInterval(() => {
+      setProgressSecs((prev) => {
+        if (totlen > 0) return Math.min(prev + 1, totlen);
+        return prev + 1;
+      });
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [playing, totlen]);
+
+  const progressPct = totlen > 0 ? Math.min(100, (progressSecs / totlen) * 100) : 0;
+
+  return (
+    <div className="dossier-progress">
+      <div className="dossier-progress-track">
+        <div className="dossier-progress-fill" style={{ width: `${progressPct}%` }} />
+      </div>
+      <div className="dossier-progress-times">
+        <span>{formatClock(progressSecs)}</span>
+        <span>{formatClock(totlen)}</span>
+      </div>
+    </div>
+  );
+}
+
 function qualityLabel(quality: string, streamFormat: string): string {
   const parts: string[] = [];
   if (streamFormat) parts.push(streamFormat);
@@ -61,13 +98,7 @@ export function PlayerDetailPage() {
   const [upgrade, setUpgrade] = useState<UpgradeStatus | null>(null);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [progressSecs, setProgressSecs] = useState(0);
   const progressKey = `${device?.id ?? ''}|${device?.secs ?? 0}|${device?.track ?? ''}|${device?.state ?? ''}`;
-  const [seenProgressKey, setSeenProgressKey] = useState(progressKey);
-  if (progressKey !== seenProgressKey) {
-    setSeenProgressKey(progressKey);
-    setProgressSecs(device?.secs ?? 0);
-  }
 
   useEffect(() => {
     if (!id) return;
@@ -126,20 +157,6 @@ export function PlayerDetailPage() {
     };
   }, [id]);
 
-  const progressPlaying = Boolean(device && ['play', 'stream'].includes(device.state));
-  const progressTotlen = device?.totlen ?? 0;
-
-  useEffect(() => {
-    if (!progressPlaying) return undefined;
-    const timer = window.setInterval(() => {
-      setProgressSecs((prev) => {
-        if (progressTotlen > 0) return Math.min(prev + 1, progressTotlen);
-        return prev + 1;
-      });
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [progressPlaying, progressTotlen, progressKey]);
-
   useEffect(
     () => () => {
       if (volumeCommitTimer.current) window.clearTimeout(volumeCommitTimer.current);
@@ -186,8 +203,6 @@ export function PlayerDetailPage() {
         : playing
           ? 'Playing'
           : device.state || 'Idle';
-  const progressPct =
-    device.totlen > 0 ? Math.min(100, (progressSecs / device.totlen) * 100) : 0;
   const activeInput = inputs.find((input) => input.selected);
   const upgradeView = upgrade && upgrade.device_id === id ? upgrade : null;
   const metaLine = qualityLabel(device.quality, device.stream_format);
@@ -259,15 +274,12 @@ export function PlayerDetailPage() {
                 .join(' · ')}
             </p>
             {device.totlen > 0 && (
-              <div className="dossier-progress">
-                <div className="dossier-progress-track">
-                  <div className="dossier-progress-fill" style={{ width: `${progressPct}%` }} />
-                </div>
-                <div className="dossier-progress-times">
-                  <span>{formatClock(progressSecs)}</span>
-                  <span>{formatClock(device.totlen)}</span>
-                </div>
-              </div>
+              <TrackProgress
+                key={progressKey}
+                initialSecs={device.secs}
+                totlen={device.totlen}
+                playing={['play', 'stream'].includes(device.state)}
+              />
             )}
             <div className="transport" style={{ marginTop: 14 }}>
               <button type="button" className="btn" onClick={() => void control(device.id, () => api.back(device.id))}>

@@ -43,8 +43,8 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
   const commitTimer = useRef<number | undefined>(undefined);
   const latestLevel = useRef(device.volume);
   const [dragging, setDragging] = useState(false);
-  const [localVolume, setLocalVolume] = useState(device.volume);
-  const [trackedVolume, setTrackedVolume] = useState(device.volume);
+  const [dragVolume, setDragVolume] = useState<number | null>(null);
+  const displayVolume = dragVolume ?? device.volume;
 
   const volumesLinked =
     devices.length > 1 && devices.every((d) => d.volume === devices[0].volume);
@@ -52,11 +52,6 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
   const synced = device.sync_role === 'synced';
   const playing = isPlaying(device.state);
   const np = nowPlaying(device);
-
-  if (!dragging && device.volume !== trackedVolume) {
-    setTrackedVolume(device.volume);
-    setLocalVolume(device.volume);
-  }
 
   useEffect(() => {
     if (!dragging) {
@@ -71,7 +66,7 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
 
   const onVolumeInput = (level: number) => {
     latestLevel.current = level;
-    setLocalVolume(level);
+    setDragVolume(level);
     if (commitTimer.current) window.clearTimeout(commitTimer.current);
     commitTimer.current = window.setTimeout(() => {
       commitTimer.current = undefined;
@@ -81,6 +76,7 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
 
   const endDrag = () => {
     setDragging(false);
+    setDragVolume(null);
     if (commitTimer.current) {
       window.clearTimeout(commitTimer.current);
       commitTimer.current = undefined;
@@ -92,11 +88,11 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
     if (device.muted) {
       const restore =
         useFleetStore.getState().lastAudibleVolume[device.id] ??
-        (localVolume > 0 ? localVolume : 20);
-      setLocalVolume(restore);
+        (displayVolume > 0 ? displayVolume : 20);
+      setDragVolume(restore);
       latestLevel.current = restore;
     } else {
-      setLocalVolume(0);
+      setDragVolume(0);
       latestLevel.current = 0;
     }
     void toggleMute(device.id);
@@ -216,20 +212,21 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
           type="range"
           min={0}
           max={100}
-          value={localVolume}
+          value={displayVolume}
           aria-label={`Volume for ${device.name}`}
           aria-valuemin={0}
           aria-valuemax={100}
-          aria-valuenow={localVolume}
+          aria-valuenow={displayVolume}
           onPointerDown={() => {
             setDragging(true);
+            setDragVolume(device.volume);
             holdVolume(device.id, 5000);
           }}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
           onChange={(e) => onVolumeInput(Number(e.target.value))}
         />
-        <span className="volume-value">{localVolume}</span>
+        <span className="volume-value">{displayVolume}</span>
         {volumesLinked ? (
           <span className="volume-linked" title="All players share this volume">
             link

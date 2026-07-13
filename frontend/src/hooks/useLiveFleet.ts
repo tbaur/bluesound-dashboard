@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { PlayerStatus } from '@/api/types';
+import type { PlayerStatus, SyncState } from '@/api/types';
 import { useFleetStore } from '@/store/fleetStore';
 import { api } from '@/api/client';
 
@@ -69,9 +69,14 @@ export function useLiveFleet(): void {
           const data = event.data as {
             devices: PlayerStatus[];
             discovered_at?: number | null;
+            sync?: SyncState;
           };
           setFleet(data.devices, data.discovered_at ?? null);
-          void api.getSync().then(setSync).catch(() => undefined);
+          if (data.sync) {
+            setSync(data.sync);
+          } else {
+            void api.getSync().then(setSync).catch(() => undefined);
+          }
         } else if (event.type === 'device') {
           upsertDevice(event.data as PlayerStatus);
         }

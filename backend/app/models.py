@@ -211,6 +211,14 @@ class FleetActionResponse(BaseModel):
     results: list[FleetVolumeResult]
 
 
+class SyncEnableResponse(BaseModel):
+    action: str = "sync_enable"
+    primary_id: str
+    succeeded: int
+    failed: int
+    results: list[FleetVolumeResult]
+
+
 class MuteRequest(BaseModel):
     mute: bool
 

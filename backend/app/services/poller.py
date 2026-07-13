@@ -11,6 +11,7 @@ from app.config import Settings
 from app.discovery.service import DiscoveryService
 from app.models import PlayerStatus
 from app.services.events import EventBus
+from app.services.sync import build_sync_state
 
 logger = logging.getLogger(__name__)
 
@@ -133,6 +134,7 @@ class StatusPoller:
             {
                 "devices": [d.model_dump() for d in self.discovery.snapshot.devices],
                 "discovered_at": self.discovery.snapshot.discovered_at,
+                "sync": build_sync_state(self.discovery.snapshot.devices).model_dump(),
             },
         )
 

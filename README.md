@@ -33,7 +33,17 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 
 ## Quick start
 
-Two terminals:
+One-time setup (venv + frontend deps), then:
+
+```bash
+make run
+```
+
+Open http://127.0.0.1:8765/ (API listens on http://127.0.0.1:8000/).
+
+Full setup and checks: [CONTRIBUTING.md](CONTRIBUTING.md). Ops details: [docs/RUNBOOK.md](docs/RUNBOOK.md). Configuration: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) (copy [.env.example](.env.example) to the repo root when needed).
+
+Or two terminals (start UI only after API `/api/v1/healthz` returns 200):
 
 ```bash
 # Terminal 1 — API
@@ -45,12 +55,6 @@ pip install -e ".[dev]" && uvicorn app.main:app --reload --host 127.0.0.1 --port
 # Terminal 2 — UI
 cd frontend && npm ci && npm run dev
 ```
-
-Open http://localhost:5173/
-
-Production deploy, health checks, and troubleshooting: [docs/RUNBOOK.md](docs/RUNBOOK.md).
-
-Configuration and network exposure: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) (copy [.env.example](.env.example) to start).
 
 ## Docs
 

@@ -1,8 +1,10 @@
 # Configuration
 
-All settings are environment variables with the `BSD_` prefix. Copy [.env.example](../.env.example) to `.env` in the repo root (or export variables in your shell) before starting the backend.
+All settings are environment variables with the `BSD_` prefix. Copy [.env.example](../.env.example) to `.env` in the **repo root** (or export variables in your shell) before starting the backend. The settings loader resolves the repo-root `.env` even when uvicorn is started from `backend/` (cwd-relative `.env` is also accepted as a fallback).
 
-Defaults are tuned for local development: bind localhost, discover via mDNS+LSDP, poll every few seconds, and throttle both outbound BluOS calls and inbound mutating API requests.
+Defaults are tuned for local development: bind localhost, discover via mDNS+LSDP, poll every few seconds, and throttle both outbound BluOS calls and inbound mutating API requests (plus expensive GETs such as `/api/v1/fleet/upgrades`).
+
+Local UI is Vite on **port 8765** (`make run` / `frontend` `npm run dev`). CORS defaults match that origin. The API defaults to **port 8000**.
 
 BluOS control paths follow Custom Integration API **v1.7** (queue via `/Playlist`, capture inputs via `/Settings?id=capture`, Bluetooth via `/audiomodes`, audio/player settings via `/Settings?id=audio|player`). Device diagnostics and upgrade checks use the player web UI on port 80 (`/diagnostics`, `/upgrade`). Setting writes use the reverse-engineered web UI `POST /settings` form (same path as the native control panel).
 
@@ -23,7 +25,7 @@ The backend only talks to discovered private IPs (see `BSD_ALLOW_NON_PRIVATE_IPS
 | `BSD_HOST` | `127.0.0.1` | Bind address |
 | `BSD_PORT` | `8000` | Bind port |
 | `BSD_LOG_LEVEL` | `INFO` | Log level |
-| `BSD_CORS_ORIGINS` | `http://localhost:5173` | Allowed CORS origins (comma-separated) |
+| `BSD_CORS_ORIGINS` | `http://127.0.0.1:8765,http://localhost:8765` | Allowed CORS origins (comma-separated) |
 | `BSD_STATIC_DIR` | *(empty)* | SPA dist directory for single-process serve |
 | `BSD_ENABLE_OPENAPI` | auto | OpenAPI/Swagger; auto-off when binding beyond localhost |
 
@@ -50,7 +52,7 @@ The backend only talks to discovered private IPs (see `BSD_ALLOW_NON_PRIVATE_IPS
 | `BSD_DEVICE_HTTP_TIMEOUT` | `3` | Per-device HTTP timeout |
 | `BSD_MAX_CONCURRENT_DEVICE_CALLS` | `20` | Cap concurrent BluOS HTTP calls |
 | `BSD_CONTROL_RATE_LIMIT_SECONDS` | `0.1` | Per **BluOS device IP** spacing for outbound control calls |
-| `BSD_API_RATE_LIMIT_SECONDS` | `0.05` | Per **HTTP client IP** spacing for mutating API requests |
+| `BSD_API_RATE_LIMIT_SECONDS` | `0.05` | Per **HTTP client IP** spacing for mutating API requests and expensive GETs (`/api/v1/fleet/upgrades`) |
 | `BSD_CIRCUIT_FAILURE_THRESHOLD` | `5` | Failures before slow-poll |
 | `BSD_CIRCUIT_SLOW_POLL_SECONDS` | `15` | Slow-poll interval after circuit open |
 

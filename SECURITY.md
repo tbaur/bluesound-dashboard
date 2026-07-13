@@ -4,7 +4,8 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 0.3.x   | ✅ Active support |
+| 0.4.x   | ✅ Active support |
+| 0.3.x   | ❌ No longer supported |
 | < 0.3   | ❌ No longer supported |
 
 ## Reporting a Vulnerability
@@ -29,12 +30,15 @@ The backend applies:
 
 - Discovered-device targeting with a short grace TTL
 - Private IPv4 gate on BluOS calls (unless explicitly overridden)
+- Same-host validation when following BluOS HTTP redirects
 - Per-device and per-client rate limiting
 - XML size/depth/element caps
 - Pydantic input validation and HTTP security headers
 - Dependency auditing via Dependabot (npm, pip, GitHub Actions), CodeQL, and `npm audit` in CI
 
 Details and variable names: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+
+Local development: `make run` (UI `:8765`, API `:8000`). Ops and health endpoints: [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Best Practices for Users
 
