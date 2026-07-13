@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.2](https://github.com/tbaur/bluesound-dashboard/compare/v0.4.1...v0.4.2) (2026-07-13)
+
+
+### Bug Fixes
+
+* harden redirect SSRF, CSP, discovery locking, and local start ([#26](https://github.com/tbaur/bluesound-dashboard/issues/26)) ([ced834b](https://github.com/tbaur/bluesound-dashboard/commit/ced834b1fc86e15e9991ca16c0c42c0c444e0b75))
+
 ## [0.4.1](https://github.com/tbaur/bluesound-dashboard/compare/v0.4.0...v0.4.1) (2026-07-13)
 
 
