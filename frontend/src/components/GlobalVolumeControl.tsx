@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import {
   fleetHasActivePlayback,
   fleetHouseStatus,
@@ -17,23 +18,6 @@ function medianVolume(volumes: number[]): number {
   return sorted[mid];
 }
 
-function representativeDb(
-  devices: { volume: number; db: string }[],
-  targetVolume: number,
-): string {
-  const exact = devices.find((d) => d.volume === targetVolume && d.db.trim());
-  if (exact) return exact.db.trim();
-  const values = devices
-    .map((d) => Number.parseFloat(d.db))
-    .filter((n) => Number.isFinite(n))
-    .sort((a, b) => a - b);
-  if (values.length === 0) return '';
-  const mid = Math.floor(values.length / 2);
-  const median =
-    values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
-  return Number.isInteger(median) ? String(median) : median.toFixed(1);
-}
-
 function GlobalVolumePanel() {
   const devices = useFleetStore((s) => s.devices);
   const setFleetVolume = useFleetStore((s) => s.setFleetVolume);
@@ -48,7 +32,6 @@ function GlobalVolumePanel() {
   const [trackedMedian, setTrackedMedian] = useState(fleetMedian);
   const volumesMatch =
     devices.length > 0 && devices.every((d) => d.volume === devices[0].volume);
-  const draftDb = representativeDb(devices, draft);
 
   if (!dragging && !pending && fleetMedian !== trackedMedian) {
     setTrackedMedian(fleetMedian);
@@ -144,9 +127,8 @@ function GlobalVolumePanel() {
           onPointerCancel={endDrag}
           onChange={(e) => onInput(Number(e.target.value))}
         />
-        <span className="global-volume-value" title={draftDb ? `${draft}% · ${draftDb} dB` : `${draft}%`}>
-          <span>{draft}</span>
-          {draftDb ? <span className="global-volume-db">{draftDb} dB</span> : null}
+        <span className="global-volume-value" title={`${draft}%`}>
+          {draft}
         </span>
       </div>
     </section>
@@ -179,7 +161,11 @@ function FleetActionsPanel() {
     >
       <div className="house-remote-head">
         <div className="house-remote-title-row">
-          <h2 id="fleet-actions-heading">House remote</h2>
+          <h2 id="fleet-actions-heading">
+            <Link to="/house" className="house-remote-title-link">
+              House remote
+            </Link>
+          </h2>
           {status.meta.length > 0 ? (
             <ul className="house-remote-meta" aria-label="House status">
               {status.meta.map((item) => (
@@ -189,13 +175,20 @@ function FleetActionsPanel() {
           ) : null}
         </div>
         <p className="house-remote-primary" title={statusTitle}>
-          {status.primary}
+          <Link to="/house" className="house-remote-status-link">
+            {status.primary}
+          </Link>
         </p>
         {status.detail ? (
           <p className="house-remote-detail" title={status.detail}>
             {status.detail}
           </p>
         ) : null}
+        <p className="house-remote-open">
+          <Link to="/house" className="card-meta">
+            Open house →
+          </Link>
+        </p>
       </div>
       <div className="fleet-actions house-remote-actions" role="group" aria-label="House transport">
         <button

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '@/api/client';
-import type { AudioInput, Preset, QueueResponse } from '@/api/types';
+import type { AudioInput, DiagnoseResponse, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
+import { DeviceSettingsPanel } from '@/components/DeviceSettingsPanel';
 import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
 import { useFleetStore } from '@/store/fleetStore';
 import { useLiveFleet } from '@/hooks/useLiveFleet';
@@ -48,13 +49,17 @@ export function PlayerDetailPage() {
   const control = useFleetStore((s) => s.control);
   const toggleMute = useFleetStore((s) => s.toggleMute);
   const patchDevice = useFleetStore((s) => s.patchDevice);
+  const toast = useFleetStore((s) => s.toast);
+  const setToast = useFleetStore((s) => s.setToast);
   const volumeCommitTimer = useRef<number | undefined>(undefined);
 
   const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [inputs, setInputs] = useState<AudioInput[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [bluetooth, setBluetooth] = useState('');
-  const [uptime, setUptime] = useState<string | null>(null);
+  const [diag, setDiag] = useState<DiagnoseResponse | null>(null);
+  const [upgrade, setUpgrade] = useState<UpgradeStatus | null>(null);
+  const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [progressSecs, setProgressSecs] = useState(0);
   const progressKey = `${device?.id ?? ''}|${device?.secs ?? 0}|${device?.track ?? ''}|${device?.state ?? ''}`;
@@ -86,10 +91,36 @@ export function PlayerDetailPage() {
       else failures.push('presets');
       if (b.status === 'fulfilled') setBluetooth(b.value.mode);
       else failures.push('bluetooth');
-      if (d.status === 'fulfilled') setUptime(d.value.uptime);
+      if (d.status === 'fulfilled') setDiag(d.value);
       else failures.push('diagnostics');
       setDetailError(failures.length ? `Failed to load: ${failures.join(', ')}` : null);
     })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    void api
+      .getUpgrade(id)
+      .then((value) => {
+        if (!cancelled) setUpgrade(value);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setUpgrade({
+            device_id: id,
+            name: '',
+            ip: '',
+            current_fw: '',
+            update_available: false,
+            message: 'Upgrade check failed',
+            ok: false,
+          });
+        }
+      });
     return () => {
       cancelled = true;
     };
@@ -158,6 +189,7 @@ export function PlayerDetailPage() {
   const progressPct =
     device.totlen > 0 ? Math.min(100, (progressSecs / device.totlen) * 100) : 0;
   const activeInput = inputs.find((input) => input.selected);
+  const upgradeView = upgrade && upgrade.device_id === id ? upgrade : null;
   const metaLine = qualityLabel(device.quality, device.stream_format);
 
   return (
@@ -187,6 +219,17 @@ export function PlayerDetailPage() {
       </header>
 
       {detailError && <div className="error-banner">{detailError}</div>}
+
+      {toast ? (
+        <div className="toast" role="status">
+          {toast}
+          <div style={{ marginTop: 8 }}>
+            <button type="button" className="btn" onClick={() => setToast(null)}>
+              Dismiss
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <section className="panel dossier-now">
         <div className="dossier-now-grid">
@@ -270,19 +313,55 @@ export function PlayerDetailPage() {
             </dd>
           </div>
           <div>
-            <dt>Network</dt>
-            <dd>
-              {device.ip}
-              {device.mac ? ` · ${device.mac}` : ''}
-            </dd>
-          </div>
-          <div>
             <dt>Uptime</dt>
-            <dd>{uptime || '—'}</dd>
+            <dd>{diag?.uptime || '—'}</dd>
           </div>
           <div>
             <dt>Sync</dt>
             <dd>{syncSummary(device, primary?.name ?? null)}</dd>
+          </div>
+          {diag?.signal_strength ? (
+            <div>
+              <dt>Wi‑Fi signal</dt>
+              <dd>{diag.signal_strength}</dd>
+            </div>
+          ) : null}
+          {diag?.network_name ? (
+            <div>
+              <dt>Network</dt>
+              <dd>
+                {diag.network_name}
+                {device.ip ? ` · ${device.ip}` : ''}
+                {device.mac ? ` · ${device.mac}` : ''}
+              </dd>
+            </div>
+          ) : (
+            <div>
+              <dt>Network</dt>
+              <dd>
+                {device.ip}
+                {device.mac ? ` · ${device.mac}` : ''}
+              </dd>
+            </div>
+          )}
+          {diag?.total_songs != null && diag.total_songs !== '' ? (
+            <div>
+              <dt>Library songs</dt>
+              <dd>{diag.total_songs}</dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>Firmware</dt>
+            <dd title={upgradeView?.message || undefined}>
+              {device.fw || diag?.web_fw || '—'}
+              {upgradeView
+                ? upgradeView.ok
+                  ? upgradeView.update_available
+                    ? ' · update available'
+                    : ' · up to date'
+                  : ' · check failed'
+                : ''}
+            </dd>
           </div>
           {device.battery != null && device.battery !== '' && (
             <div>
@@ -468,9 +547,45 @@ export function PlayerDetailPage() {
             </div>
           </section>
 
+          <DeviceSettingsPanel deviceId={device.id} />
+
           <section>
             <h3>Maintenance</h3>
+            <p className="card-meta" style={{ marginBottom: 10 }} title={upgradeView?.message || undefined}>
+              {upgradeView
+                ? upgradeView.ok
+                  ? upgradeView.update_available
+                    ? 'An update is available. Install it from the BluOS Controller app.'
+                    : 'No update available on this player.'
+                  : 'Firmware check failed. Retry below, or open the BluOS Controller app.'
+                : 'Checking firmware…'}
+            </p>
             <div className="transport">
+              <button
+                type="button"
+                className="btn"
+                disabled={upgradeBusy}
+                onClick={() => {
+                  setUpgradeBusy(true);
+                  void api
+                    .getUpgrade(device.id)
+                    .then(setUpgrade)
+                    .catch(() =>
+                      setUpgrade({
+                        device_id: device.id,
+                        name: device.name,
+                        ip: device.ip,
+                        current_fw: device.fw,
+                        update_available: false,
+                        message: 'Upgrade check failed',
+                        ok: false,
+                      }),
+                    )
+                    .finally(() => setUpgradeBusy(false));
+                }}
+              >
+                {upgradeBusy ? 'Checking…' : 'Check for upgrade'}
+              </button>
               <button
                 type="button"
                 className="btn"

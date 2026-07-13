@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Node](https://img.shields.io/badge/node-22%2B-green.svg)](https://nodejs.org/)
 
-Consolidated LAN dashboard for Bluesound / BluOS players (Custom Integration API **v1.7**). Discovers devices on the network (mDNS + LSDP) and exposes playback, volume, queue, inputs, presets, Bluetooth, and multi-room controls through a live web UI.
+Consolidated LAN dashboard for Bluesound / BluOS players (Custom Integration API **v1.7**). Discovers devices on the network (mDNS + LSDP) and exposes multi-device playback, volume, queue, inputs, presets, Bluetooth, and multi-room controls through a live web UI — the house-wide surface Bluesound apps never shipped.
 
 Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controller). This dashboard is self-contained (no runtime dependency on the CLI).
 
@@ -20,7 +20,9 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 - **Queue** view / clear / reorder
 - **Inputs**, **presets**, **Bluetooth** modes
 - **Multi-room groups** create groups, add/remove followers, group all, ungroup all
-- **Diagnostics** per-player status + uptime; hard/soft reboot (API)
+- **House page** fleet transport, break-all groups, soft/hard reboot all, firmware inventory + upgrade check
+- **Player settings** audio/player options (EQ, replay gain, LED, standby, …)
+- **Diagnostics** structured per-player status (uptime, signal, network, firmware); hard/soft reboot (API)
 - **Ops** health / readiness endpoints, structured logs, automated releases — see [docs/RUNBOOK.md](docs/RUNBOOK.md)
 
 ## Requirements

@@ -16,9 +16,13 @@ from app.api.deps import get_state
 from app.api.errors import AppError
 from app.models import (
     BluetoothRequest,
+    DeviceSettingsResponse,
     DevicesResponse,
     DiagnoseResponse,
+    FirmwareEntry,
     FleetActionResponse,
+    FleetFirmwareResponse,
+    FleetUpgradeResponse,
     FleetVolumeResponse,
     FleetVolumeResult,
     HealthResponse,
@@ -26,9 +30,11 @@ from app.models import (
     MuteRequest,
     QueueMoveRequest,
     RebootRequest,
+    SettingWriteRequest,
     SyncEnableRequest,
     SyncPairRequest,
     SyncState,
+    UpgradeStatus,
     VersionInfo,
     VolumeAdjustRequest,
     VolumeRequest,
@@ -249,6 +255,18 @@ async def fleet_stop(state: StateDep) -> FleetActionResponse:
     return await _fleet_action(state, "stop", state.client.stop)
 
 
+@router.post("/fleet/reboot", response_model=FleetActionResponse)
+async def fleet_reboot(body: RebootRequest, state: StateDep) -> FleetActionResponse:
+    """Soft or hard reboot every discovered player (device web UI /reboot)."""
+    soft = body.soft
+    action = "soft_reboot" if soft else "reboot"
+
+    async def run(ip: str) -> bool:
+        return await state.client.reboot(ip, soft=soft)
+
+    return await _fleet_action(state, action, run)
+
+
 @router.get("/devices/{device_id}")
 async def get_device(device_id: str, state: StateDep):
     _require_device(state, device_id)
@@ -333,7 +351,7 @@ async def diagnose(device_id: str, state: StateDep) -> DiagnoseResponse:
         if refreshed is None:
             raise AppError(404, "device_not_found", "Device not found")
         device = refreshed
-    uptime = await state.client.get_uptime(ip)
+    diagnostics = await state.client.get_diagnostics(ip) or {}
     return DiagnoseResponse(
         device_id=device.id,
         ip=device.ip,
@@ -353,7 +371,109 @@ async def diagnose(device_id: str, state: StateDep) -> DiagnoseResponse:
         group=device.group,
         quality=device.quality,
         stream_format=device.stream_format,
-        uptime=uptime,
+        uptime=diagnostics.get("uptime"),
+        network_name=diagnostics.get("network_name"),
+        signal_strength=diagnostics.get("signal_strength"),
+        total_songs=diagnostics.get("total_songs"),
+        web_ip=diagnostics.get("web_ip"),
+        web_mac=diagnostics.get("web_mac"),
+        web_fw=diagnostics.get("web_fw"),
+    )
+
+
+@router.get("/devices/{device_id}/settings/{page_id}", response_model=DeviceSettingsResponse)
+async def get_device_settings(
+    device_id: str,
+    page_id: Annotated[str, Path(pattern="^(audio|player)$")],
+    state: StateDep,
+) -> DeviceSettingsResponse:
+    ip = _require_device(state, device_id)
+    result = await state.client.get_device_settings(ip, page_id)
+    if result is None:
+        raise AppError(502, "bluos_settings_failed", "Failed to read device settings")
+    return result
+
+
+@router.post("/devices/{device_id}/settings", status_code=204)
+async def set_device_setting(
+    device_id: str, body: SettingWriteRequest, state: StateDep
+) -> Response:
+    ip = _require_device(state, device_id)
+
+    async def op(_: str) -> bool:
+        return await state.client.set_device_setting(
+            ip, body.id, body.value, control_path=body.control_path
+        )
+
+    return await _control(state, device_id, "setting", op)
+
+
+@router.get("/devices/{device_id}/upgrade", response_model=UpgradeStatus)
+async def device_upgrade(device_id: str, state: StateDep) -> UpgradeStatus:
+    ip = _require_device(state, device_id)
+    device = state.discovery.get_device(device_id)
+    return await state.client.get_upgrade_status(
+        ip,
+        device_id=device_id,
+        name=device.name if device else device_id,
+        current_fw=device.fw if device else "",
+    )
+
+
+@router.get("/fleet/firmware", response_model=FleetFirmwareResponse)
+async def fleet_firmware(state: StateDep) -> FleetFirmwareResponse:
+    snapshot = await state.discovery.get_devices()
+    devices = [
+        FirmwareEntry(
+            device_id=d.id,
+            name=d.name,
+            ip=d.ip,
+            model=d.full_model or d.model,
+            fw=d.fw,
+            status=d.status,
+        )
+        for d in snapshot.devices
+    ]
+    versions = sorted({d.fw for d in devices if d.fw})
+    return FleetFirmwareResponse(
+        unique_versions=versions,
+        skew=len(versions) > 1,
+        devices=devices,
+    )
+
+
+@router.get("/fleet/upgrades", response_model=FleetUpgradeResponse)
+async def fleet_upgrades(state: StateDep) -> FleetUpgradeResponse:
+    snapshot = await state.discovery.get_devices()
+    if not snapshot.devices:
+        return FleetUpgradeResponse(updates_available=0, checked=0, failed=0, results=[])
+
+    async def one(device) -> UpgradeStatus:
+        if not state.settings.is_allowed_device_ip(device.ip):
+            return UpgradeStatus(
+                device_id=device.id,
+                name=device.name,
+                ip=device.ip,
+                current_fw=device.fw,
+                update_available=False,
+                message="IP not allowed",
+                ok=False,
+            )
+        return await state.client.get_upgrade_status(
+            device.ip,
+            device_id=device.id,
+            name=device.name,
+            current_fw=device.fw,
+        )
+
+    results = list(await asyncio.gather(*(one(d) for d in snapshot.devices)))
+    failed = sum(1 for r in results if not r.ok)
+    updates = sum(1 for r in results if r.ok and r.update_available)
+    return FleetUpgradeResponse(
+        updates_available=updates,
+        checked=len(results) - failed,
+        failed=failed,
+        results=results,
     )
 
 

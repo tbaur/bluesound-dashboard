@@ -69,4 +69,29 @@ describe('api client', () => {
 
     await expect(api.toggle('player-1')).resolves.toBeUndefined();
   });
+
+  it('posts settings writes with control_path', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 204,
+      headers: new Headers(),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      api.setSetting('player-kitchen', 'channelMode', 'left', '/audiomodes'),
+    ).resolves.toBeUndefined();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/devices/player-kitchen/settings',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({
+          id: 'channelMode',
+          value: 'left',
+          control_path: '/audiomodes',
+        }),
+      }),
+    );
+  });
 });

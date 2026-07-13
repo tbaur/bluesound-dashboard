@@ -86,7 +86,7 @@ async def test_get_retries_exhausted(settings: Settings) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_post_transport_error(settings: Settings) -> None:
-    respx.post("http://192.168.1.20:11000/reboot").mock(side_effect=httpx.ConnectError("x"))
+    respx.post("http://192.168.1.20/reboot").mock(side_effect=httpx.ConnectError("x"))
     client = BluOSClient(settings)
     try:
         assert await client.reboot("192.168.1.20") is False

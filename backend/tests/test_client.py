@@ -246,11 +246,11 @@ async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
     play = respx.get("http://192.168.1.20:11000/Play").mock(
         return_value=httpx.Response(200, content=b"<ok/>")
     )
-    soft = respx.post("http://192.168.1.20:11000/Reboot").mock(
+    soft = respx.post("http://192.168.1.20/Reboot").mock(
         return_value=httpx.Response(200, content=b"<ok/>")
     )
-    hard = respx.post("http://192.168.1.20:11000/reboot").mock(
-        return_value=httpx.Response(200, content=b"<ok/>")
+    hard = respx.post("http://192.168.1.20/reboot").mock(
+        return_value=httpx.Response(200, text="ok")
     )
     respx.get("http://192.168.1.20:11000/Presets").mock(
         return_value=httpx.Response(200, content=PRESETS)
@@ -278,8 +278,12 @@ async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
         assert play.called
         assert await client.reboot("192.168.1.20", soft=True) is True
         assert soft.called
+        assert soft.calls.last.request.url.host == "192.168.1.20"
+        assert soft.calls.last.request.url.port in (None, 80)
         assert await client.reboot("192.168.1.20", soft=False) is True
         assert hard.called
+        assert "yes=1" in (hard.calls.last.request.content or b"").decode()
+        assert hard.calls.last.request.url.path == "/reboot"
         presets = await client.get_presets("192.168.1.20")
         assert presets is not None
         assert presets[0].name == "Morning"
@@ -331,3 +335,145 @@ async def test_uptime_fallbacks_and_errors(settings: Settings) -> None:
 def test_input_type_from_icon_hints() -> None:
     assert BluOSClient._input_type_from_capture("Mystery", "ic_optical.png") == "spdif"
     assert BluOSClient._input_type_from_capture("Unknown Port", "") == "analog"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_settings_and_upgrade_web_ui(settings: Settings) -> None:
+    from tests.fixtures.xml_samples import AUDIO_SETTINGS, PLAYER_SETTINGS
+
+    def settings_response(request: httpx.Request) -> httpx.Response:
+        if "id=audio" in str(request.url):
+            return httpx.Response(200, content=AUDIO_SETTINGS)
+        return httpx.Response(200, content=PLAYER_SETTINGS)
+
+    respx.get(url__regex=r"http://192\.168\.1\.20:11000/Settings.*").mock(
+        side_effect=settings_response
+    )
+    respx.get(url__regex=r"http://192\.168\.1\.20:11000/alsa_setting.*").mock(
+        return_value=httpx.Response(200, content=b"")
+    )
+    respx.get(url__regex=r"http://192\.168\.1\.20:11000/audiomodes.*").mock(
+        return_value=httpx.Response(200, content=b"")
+    )
+    respx.post("http://192.168.1.20/settings").mock(return_value=httpx.Response(200, text="ok"))
+    respx.get("http://192.168.1.20/upgrade").mock(
+        return_value=httpx.Response(
+            200,
+            text='<div data-role="content"><p>No update available.</p></div>',
+        )
+    )
+    respx.get("http://192.168.1.20/diagnostics").mock(
+        return_value=httpx.Response(
+            200,
+            text=(
+                '<div class="ui-block-a">Signal Strength:</div>'
+                '<div class="ui-block-b">-70 dBm</div>'
+                '<div class="ui-block-a">Uptime:</div>'
+                '<div class="ui-block-b">12h3m</div>'
+            ),
+        )
+    )
+    client = BluOSClient(settings)
+    try:
+        audio = await client.get_device_settings("192.168.1.20", "audio")
+        assert audio is not None
+        assert any(s.id == "eq-treble" for s in audio.settings)
+        assert any(s.id == "replayGainMode" and len(s.options) == 2 for s in audio.settings)
+
+        player = await client.get_device_settings("192.168.1.20", "player")
+        assert player is not None
+        assert all(s.id != "wifi" for s in player.settings)
+        assert any(s.id == "ledbrightness" for s in player.settings)
+
+        assert await client.set_device_setting("192.168.1.20", "eq-treble", "3") is True
+        assert (
+            await client.set_device_setting(
+                "192.168.1.20",
+                "channelMode",
+                "left",
+                control_path="/audiomodes",
+            )
+            is True
+        )
+        # Omitting control_path still resolves /alsa_setting from Settings XML.
+        alsa_calls = [
+            call
+            for call in respx.calls
+            if "alsa_setting" in str(call.request.url) and "eq-treble=3" in str(call.request.url)
+        ]
+        assert alsa_calls
+
+        upgrade = await client.get_upgrade_status(
+            "192.168.1.20", device_id="p1", name="Kitchen", current_fw="4.16.6"
+        )
+        assert upgrade.ok is True
+        assert upgrade.update_available is False
+        diag = await client.get_diagnostics("192.168.1.20")
+        assert diag is not None
+        assert diag["uptime"] == "12h3m"
+        assert diag["signal_strength"] == "-70 dBm"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_upgrade_available_and_settings_edge_cases(settings: Settings) -> None:
+    respx.get("http://192.168.1.20/upgrade").mock(
+        return_value=httpx.Response(
+            200,
+            text='<div data-role="content"><p>Update available.</p><a>I want it now</a></div>',
+        )
+    )
+    respx.get("http://192.168.1.20/diagnostics").mock(return_value=httpx.Response(500))
+    # Resolve finds no settings pages → empty control_path → web UI POST fails.
+    respx.get(url__regex=r"http://192\.168\.1\.20:11000/Settings.*").mock(
+        return_value=httpx.Response(404)
+    )
+    respx.post("http://192.168.1.20/settings").mock(return_value=httpx.Response(500))
+    client = BluOSClient(settings)
+    try:
+        upgrade = await client.get_upgrade_status("192.168.1.20", current_fw="4.10.0")
+        assert upgrade.update_available is True
+        assert upgrade.ok is True
+        assert await client.get_diagnostics("192.168.1.20") is None
+        assert await client.get_device_settings("192.168.1.20", "library") is None
+        assert await client.set_device_setting("192.168.1.20", "", "1") is False
+        assert await client.set_device_setting("192.168.1.20", "eq-treble", "1") is False
+    finally:
+        await client.aclose()
+
+
+def test_setting_write_request_validation() -> None:
+    from pydantic import ValidationError
+
+    from app.models import SettingWriteRequest
+
+    ok = SettingWriteRequest(id="eq-treble", value="2")
+    assert ok.id == "eq-treble"
+    with pytest.raises(ValidationError):
+        SettingWriteRequest(id="bad/id", value="1")
+    with pytest.raises(ValidationError):
+        SettingWriteRequest(id="eq!", value="1")
+    with pytest.raises(ValidationError):
+        SettingWriteRequest(id="eq-treble", value="x\ny")
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_web_ui_port_override(settings: Settings) -> None:
+    settings.web_ui_port = 8080
+    respx.get("http://192.168.1.20:8080/upgrade").mock(
+        return_value=httpx.Response(
+            200,
+            text='<div data-role="content"><p>No update available.</p></div>',
+        )
+    )
+    client = BluOSClient(settings)
+    try:
+        status = await client.get_upgrade_status("192.168.1.20")
+        assert status.ok is True
+        assert status.update_available is False
+    finally:
+        await client.aclose()

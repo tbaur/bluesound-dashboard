@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     max_xml_elements: int = Field(default=10_000, ge=100, le=100_000)
 
     bluos_port: int = Field(default=11000, ge=1, le=65535)
+    web_ui_port: int = Field(default=80, ge=1, le=65535)
     mdns_service: str = "_musc._tcp.local."
     static_dir: str = ""
 

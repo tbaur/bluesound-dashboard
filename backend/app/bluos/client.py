@@ -15,11 +15,15 @@ from app.bluos.xml import attr, safe_parse_xml, text
 from app.config import Settings
 from app.models import (
     AudioInput,
+    DeviceSetting,
+    DeviceSettingsResponse,
     PlayerStatus,
     Preset,
     QueueItem,
     QueueResponse,
+    SettingOption,
     SyncRole,
+    UpgradeStatus,
 )
 from app.validators import make_device_id, parse_bluos_host, sanitize_ip
 
@@ -364,36 +368,273 @@ class BluOSClient:
         return await self.play(ip)
 
     async def reboot(self, ip: str, *, soft: bool = False) -> bool:
-        if soft:
-            return await self._post(ip, "/Reboot", data={"soft": "1"}, control=True)
-        return await self._post(ip, "/reboot", data={"yes": "1"}, control=True)
+        """Reboot via the device web UI (:80), matching bluesound-controller / native UI.
 
-    async def get_uptime(self, ip: str) -> str | None:
-        """Read uptime from the device web UI (port 80), not BluOS :11000."""
+        Soft: POST /Reboot soft=1. Hard: POST /reboot yes=1.
+        BluOS :11000 has no /reboot|/Reboot handlers (404).
+        """
+        if soft:
+            return await self._post_web_ui(ip, "/Reboot", {"soft": "1"})
+        return await self._post_web_ui(ip, "/reboot", {"yes": "1"})
+
+    def _web_ui_url(self, ip: str, path: str) -> str:
+        port = self.settings.web_ui_port
+        if port == 80:
+            return f"http://{ip}{path}"
+        return f"http://{ip}:{port}{path}"
+
+    async def _get_web_ui(self, ip: str, path: str) -> str | None:
+        """GET the device web UI (port 80 by default), not BluOS :11000."""
         sanitized = sanitize_ip(ip)
         if not sanitized:
             return None
         if not self.settings.is_allowed_device_ip(sanitized):
             logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
             return None
-        url = f"http://{sanitized}/diagnostics"
+        url = self._web_ui_url(sanitized, path)
         try:
             async with self._sem:
                 response = await self._client.get(url)
             if response.status_code >= 400:
                 return None
-            html = response.text
+            text_body = response.text
+            if len(text_body.encode("utf-8", errors="ignore")) > self.settings.max_xml_size:
+                logger.warning("payload_too_large ip=%s path=%s", sanitized, path)
+                return None
+            return text_body
         except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
-            logger.debug("diagnostics_failed ip=%s err=%s", sanitized, exc)
+            logger.debug("web_ui_get_failed ip=%s path=%s err=%s", sanitized, path, exc)
             return None
-        match = re.search(r"Uptime:</div>\s*<div[^>]*>(.*?)</div>", html, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        # Fallback for alternate diagnostics markup.
-        match = re.search(r"Uptime:\s*</[^>]+>\s*([^<\s]+)", html, re.IGNORECASE)
-        if match:
-            return match.group(1).strip()
-        return None
+
+    async def _post_web_ui(self, ip: str, path: str, data: dict[str, str]) -> bool:
+        """POST form data to the device web UI (reverse-engineered settings writes)."""
+        sanitized = sanitize_ip(ip)
+        if not sanitized:
+            return False
+        if not self.settings.is_allowed_device_ip(sanitized):
+            logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
+            return False
+        await self._rate.wait(sanitized)
+        url = self._web_ui_url(sanitized, path)
+        try:
+            async with self._sem:
+                response = await self._client.post(url, data=data)
+            return response.status_code < 400
+        except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
+            logger.debug("web_ui_post_failed ip=%s path=%s err=%s", sanitized, path, exc)
+            return False
+
+    @staticmethod
+    def _parse_diagnostics_html(html: str) -> dict[str, str]:
+        pairs = re.findall(
+            r'<div class="ui-block-a">\s*([^<:]+?)\s*:?\s*</div>\s*'
+            r'<div class="ui-block-b">\s*(.*?)\s*</div>',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        label_map = {
+            "connected to network": "network_name",
+            "signal strength": "signal_strength",
+            "ip address": "web_ip",
+            "mac address": "web_mac",
+            "bluos version": "web_fw",
+            "uptime": "uptime",
+            "total songs": "total_songs",
+        }
+        out: dict[str, str] = {}
+        for label, value in pairs:
+            key = label_map.get(re.sub(r"\s+", " ", label.strip().lower()))
+            if not key:
+                continue
+            cleaned = re.sub(r"<[^>]+>", "", value).strip()
+            if cleaned:
+                out[key] = cleaned
+        if "uptime" not in out:
+            match = re.search(
+                r"Uptime:</div>\s*<div[^>]*>(.*?)</div>", html, re.IGNORECASE
+            )
+            if match:
+                out["uptime"] = match.group(1).strip()
+            else:
+                match = re.search(r"Uptime:\s*</[^>]+>\s*([^<\s]+)", html, re.IGNORECASE)
+                if match:
+                    out["uptime"] = match.group(1).strip()
+        return out
+
+    async def get_diagnostics(self, ip: str) -> dict[str, str] | None:
+        html = await self._get_web_ui(ip, "/diagnostics")
+        if html is None:
+            return None
+        parsed = self._parse_diagnostics_html(html)
+        return parsed or {}
+
+    async def get_uptime(self, ip: str) -> str | None:
+        """Read uptime from the device web UI diagnostics page."""
+        parsed = await self.get_diagnostics(ip)
+        if parsed is None:
+            return None
+        return parsed.get("uptime")
+
+    @staticmethod
+    def _parse_upgrade_html(html: str) -> tuple[bool, str]:
+        content_match = re.search(
+            r'data-role="content"[^>]*>(.*?)</div>',
+            html,
+            re.IGNORECASE | re.DOTALL,
+        )
+        chunk = content_match.group(1) if content_match else html
+        text_body = re.sub(r"<[^>]+>", " ", chunk)
+        text_body = re.sub(r"\s+", " ", text_body).strip()
+        lowered = text_body.lower()
+        if "no update available" in lowered:
+            return False, text_body or "No update available."
+        if "update available" in lowered or "i want it now" in lowered:
+            return True, text_body or "Update available."
+        if text_body:
+            return False, text_body
+        return False, "Upgrade status unknown."
+
+    async def get_upgrade_status(
+        self, ip: str, *, device_id: str = "", name: str = "", current_fw: str = ""
+    ) -> UpgradeStatus:
+        html = await self._get_web_ui(ip, "/upgrade")
+        if html is None:
+            return UpgradeStatus(
+                device_id=device_id,
+                name=name,
+                ip=ip,
+                current_fw=current_fw,
+                update_available=False,
+                message="Upgrade check failed",
+                ok=False,
+            )
+        available, message = self._parse_upgrade_html(html)
+        return UpgradeStatus(
+            device_id=device_id,
+            name=name,
+            ip=ip,
+            current_fw=current_fw,
+            update_available=available,
+            message=message,
+            ok=True,
+        )
+
+    def _parse_settings_page(
+        self, raw: bytes, ip: str, page_id: str
+    ) -> DeviceSettingsResponse | None:
+        root = safe_parse_xml(raw, self.settings, ip)
+        if root is None:
+            return None
+        settings: list[DeviceSetting] = []
+        for node in root.iter("setting"):
+            setting_id = (node.get("id") or node.get("name") or "").strip()
+            if not setting_id:
+                continue
+            # Skip webview-only entries (Wi-Fi, etc.) — no simple value control.
+            if node.find("webview") is not None:
+                continue
+            kind = (node.get("class") or "").strip()
+            options: list[SettingOption] = []
+            min_value: float | None = None
+            max_value: float | None = None
+            step: float | None = None
+            units = ""
+            for value_node in node.findall("value"):
+                option_name = (value_node.get("name") or "").strip()
+                if option_name:
+                    options.append(
+                        SettingOption(
+                            name=option_name,
+                            display_name=value_node.get("displayName") or option_name,
+                        )
+                    )
+                    continue
+                if value_node.get("min") is not None:
+                    try:
+                        min_value = float(value_node.get("min") or "")
+                        max_value = float(value_node.get("max") or "")
+                    except ValueError:
+                        min_value = None
+                        max_value = None
+                    step_raw = value_node.get("step")
+                    try:
+                        step = float(step_raw) if step_raw else None
+                    except ValueError:
+                        step = None
+                    units = value_node.get("units") or ""
+            depends = node.find("dependsOn")
+            settings.append(
+                DeviceSetting(
+                    id=setting_id,
+                    name=node.get("name") or setting_id,
+                    display_name=node.get("displayName") or setting_id,
+                    kind=kind,
+                    value=node.get("value") or "",
+                    description=node.get("description") or "",
+                    explanation=node.get("explanation") or "",
+                    disabled=(node.get("disable") or "").lower() in {"true", "1", "yes"},
+                    control_path=node.get("url") or "",
+                    min_value=min_value,
+                    max_value=max_value,
+                    step=step,
+                    units=units,
+                    options=options,
+                    depends_on=(depends.get("name") if depends is not None else "") or "",
+                    depends_value=(depends.get("value") if depends is not None else "") or "",
+                )
+            )
+        return DeviceSettingsResponse(page_id=page_id, settings=settings)
+
+    async def get_device_settings(self, ip: str, page_id: str) -> DeviceSettingsResponse | None:
+        """Read BluOS settings page (audio / player) via :11000/Settings."""
+        page = (page_id or "").strip().lower()
+        if page not in {"audio", "player"}:
+            return None
+        raw = await self._get(ip, "/Settings", query=f"id={page}")
+        if not raw:
+            return None
+        return self._parse_settings_page(raw, ip, page)
+
+    async def set_device_setting(
+        self, ip: str, setting_id: str, value: str, *, control_path: str = ""
+    ) -> bool:
+        """Write a setting via its BluOS control path when known, else web UI POST."""
+        sid = (setting_id or "").strip()
+        if not sid:
+            return False
+        path = (control_path or "").strip()
+        if not path:
+            path = await self._resolve_setting_control_path(ip, sid)
+        if path.startswith("/") and "://" not in path:
+            path_only = path.split("?", 1)[0]
+            if path_only.lower() == "/name":
+                raw = await self._get(
+                    ip, "/Name", query=f"name={quote(value)}", control=True
+                )
+            else:
+                raw = await self._get(
+                    ip,
+                    path_only,
+                    query=f"{quote(sid, safe='-_.')}={quote(value, safe=',.-')}",
+                    control=True,
+                )
+            if raw is not None:
+                return True
+        return await self._post_web_ui(
+            ip,
+            "/settings",
+            {"playnum": "1", "id": sid, "value": value},
+        )
+
+    async def _resolve_setting_control_path(self, ip: str, setting_id: str) -> str:
+        for page in ("audio", "player"):
+            page_data = await self.get_device_settings(ip, page)
+            if page_data is None:
+                continue
+            for setting in page_data.settings:
+                if setting.id == setting_id:
+                    return setting.control_path or ""
+        return ""
 
     async def set_volume(self, ip: str, level: int) -> bool:
         level = max(0, min(100, level))

@@ -1,12 +1,16 @@
 import type {
   ApiErrorBody,
   AudioInput,
+  DeviceSettingsResponse,
   DiagnoseResponse,
   DevicesResponse,
+  FleetFirmwareResponse,
+  FleetUpgradeResponse,
   PlayerStatus,
   Preset,
   QueueResponse,
   SyncState,
+  UpgradeStatus,
 } from './types';
 import { ApiError } from './types';
 
@@ -66,6 +70,16 @@ export const api = {
   adjustVolume: (id: string, delta: number) =>
     request<void>(`/devices/${id}/volume/adjust`, { method: 'POST', json: { delta } }),
   diagnose: (id: string) => request<DiagnoseResponse>(`/devices/${id}/diagnose`),
+  getSettings: (id: string, pageId: 'audio' | 'player') =>
+    request<DeviceSettingsResponse>(`/devices/${id}/settings/${pageId}`),
+  setSetting: (id: string, settingId: string, value: string, controlPath = '') =>
+    request<void>(`/devices/${id}/settings`, {
+      method: 'POST',
+      json: { id: settingId, value, control_path: controlPath },
+    }),
+  getUpgrade: (id: string) => request<UpgradeStatus>(`/devices/${id}/upgrade`),
+  fleetFirmware: () => request<FleetFirmwareResponse>('/fleet/firmware'),
+  fleetUpgrades: () => request<FleetUpgradeResponse>('/fleet/upgrades'),
   reboot: (id: string, soft = false) =>
     request<void>(`/devices/${id}/reboot`, { method: 'POST', json: { soft } }),
   setVolume: (id: string, level: number) =>
@@ -98,6 +112,13 @@ export const api = {
       failed: number;
       results: { device_id: string; name: string; ok: boolean }[];
     }>('/fleet/stop', { method: 'POST' }),
+  fleetReboot: (soft = false) =>
+    request<{
+      action: string;
+      succeeded: number;
+      failed: number;
+      results: { device_id: string; name: string; ok: boolean }[];
+    }>('/fleet/reboot', { method: 'POST', json: { soft } }),
   setMute: (id: string, mute: boolean) =>
     request<void>(`/devices/${id}/mute`, { method: 'POST', json: { mute } }),
   getQueue: (id: string) => request<QueueResponse>(`/devices/${id}/queue`),

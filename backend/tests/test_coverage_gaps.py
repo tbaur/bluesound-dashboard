@@ -157,7 +157,7 @@ async def test_get_device_refresh_and_grace_control(
     )
     poller.refresh_one = AsyncMock(return_value=refreshed)  # type: ignore[method-assign]
     client.play = AsyncMock(return_value=True)  # type: ignore[method-assign]
-    client.get_uptime = AsyncMock(return_value="1m")  # type: ignore[method-assign]
+    client.get_diagnostics = AsyncMock(return_value={"uptime": "1m"})  # type: ignore[method-assign]
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:

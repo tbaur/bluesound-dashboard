@@ -51,6 +51,7 @@ interface FleetState {
   fleetMuteAll: (mute: boolean) => Promise<void>;
   fleetPauseAll: () => Promise<void>;
   fleetStopAll: () => Promise<void>;
+  fleetRebootAll: (soft: boolean) => Promise<void>;
   control: (
     deviceId: string,
     action: () => Promise<void>,
@@ -395,6 +396,31 @@ export const useFleetStore = create<FleetState>((set, get) => ({
           err instanceof ApiError
             ? `${err.message} (${err.requestId})`
             : 'Stop all failed',
+      });
+    }
+  },
+
+  fleetRebootAll: async (soft) => {
+    const count = get().devices.length;
+    if (count === 0) return;
+    try {
+      const result = await api.fleetReboot(soft);
+      const kind = soft ? 'Soft reboot' : 'Hard reboot';
+      if (result.failed > 0) {
+        set({
+          toast: `${kind}: ${result.succeeded} ok, ${result.failed} failed`,
+        });
+      } else {
+        set({
+          toast: `${kind} sent to ${result.succeeded} player${result.succeeded === 1 ? '' : 's'}`,
+        });
+      }
+    } catch (err) {
+      set({
+        toast:
+          err instanceof ApiError
+            ? `${err.message} (${err.requestId})`
+            : 'Fleet reboot failed',
       });
     }
   },
