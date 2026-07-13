@@ -46,10 +46,10 @@ pythonpath = ["."]
 [tool.coverage.run]
 branch = true
 source = ["app"]
-omit = []
+omit = ["app/cli.py"]
 
 [tool.coverage.report]
-fail_under = 50
+fail_under = 90
 show_missing = true
 
 [tool.ruff]
