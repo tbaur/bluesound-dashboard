@@ -57,6 +57,12 @@ export function PlayerDetailPage() {
   const [uptime, setUptime] = useState<string | null>(null);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [progressSecs, setProgressSecs] = useState(0);
+  const progressKey = `${device?.id ?? ''}|${device?.secs ?? 0}|${device?.track ?? ''}|${device?.state ?? ''}`;
+  const [seenProgressKey, setSeenProgressKey] = useState(progressKey);
+  if (progressKey !== seenProgressKey) {
+    setSeenProgressKey(progressKey);
+    setProgressSecs(device?.secs ?? 0);
+  }
 
   useEffect(() => {
     if (!id) return;
@@ -89,20 +95,19 @@ export function PlayerDetailPage() {
     };
   }, [id]);
 
-  useEffect(() => {
-    setProgressSecs(device?.secs ?? 0);
-  }, [device?.id, device?.secs, device?.track, device?.state]);
+  const progressPlaying = Boolean(device && ['play', 'stream'].includes(device.state));
+  const progressTotlen = device?.totlen ?? 0;
 
   useEffect(() => {
-    if (!device || !['play', 'stream'].includes(device.state)) return;
+    if (!progressPlaying) return undefined;
     const timer = window.setInterval(() => {
       setProgressSecs((prev) => {
-        if (device.totlen > 0) return Math.min(prev + 1, device.totlen);
+        if (progressTotlen > 0) return Math.min(prev + 1, progressTotlen);
         return prev + 1;
       });
     }, 1000);
     return () => window.clearInterval(timer);
-  }, [device?.id, device?.state, device?.totlen]);
+  }, [progressPlaying, progressTotlen, progressKey]);
 
   useEffect(
     () => () => {

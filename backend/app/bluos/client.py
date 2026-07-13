@@ -577,7 +577,8 @@ class BluOSClient:
         if root is None:
             return None
         for setting in root.iter("setting"):
-            if setting.get("id") == "bluetoothAutoplay" or setting.get("name") == "bluetoothAutoplay":
+            setting_id = setting.get("id") or setting.get("name")
+            if setting_id == "bluetoothAutoplay":
                 mode = setting.get("value", "")
                 return self._BT_MODE_MAP.get(mode, "Unknown")
         return None

@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { usePressRepeat } from '@/hooks/usePressRepeat';
 
 type VolumeNudgeButtonsProps = {
@@ -9,7 +9,9 @@ type VolumeNudgeButtonsProps = {
 
 export function VolumeNudgeButtons({ value, onChange, disabled = false }: VolumeNudgeButtonsProps) {
   const levelRef = useRef(value);
-  levelRef.current = value;
+  useEffect(() => {
+    levelRef.current = value;
+  }, [value]);
 
   const nudge = (delta: number) => {
     const next = Math.max(0, Math.min(100, levelRef.current + delta));
