@@ -53,10 +53,12 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
   const playing = isPlaying(device.state);
   const np = nowPlaying(device);
 
-  if (!dragging && device.volume !== trackedVolume) {
-    setTrackedVolume(device.volume);
-    setLocalVolume(device.volume);
-  }
+  useEffect(() => {
+    if (!dragging && device.volume !== trackedVolume) {
+      setTrackedVolume(device.volume);
+      setLocalVolume(device.volume);
+    }
+  }, [device.volume, dragging, trackedVolume]);
 
   useEffect(() => {
     if (!dragging) {

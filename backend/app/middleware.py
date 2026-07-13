@@ -15,6 +15,8 @@ from app.logging import request_id_var
 
 logger = logging.getLogger(__name__)
 
+# Album art is served from BluOS players on the LAN (http://<device>:11000/...).
+# CSP cannot express RFC1918 CIDRs, so http: is required for single-process deploys.
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -22,12 +24,14 @@ _SECURITY_HEADERS = {
     "Content-Security-Policy": (
         "default-src 'self'; "
         "connect-src 'self'; "
-        "img-src 'self' data:; "
+        "img-src 'self' data: http:; "
         "style-src 'self' 'unsafe-inline'; "
         "script-src 'self'; "
         "frame-ancestors 'none'"
     ),
 }
+
+_EXPENSIVE_GET_PATHS = frozenset({"/api/v1/fleet/upgrades"})
 
 
 class RequestContextMiddleware:
@@ -50,7 +54,10 @@ class RequestContextMiddleware:
 
         method = scope.get("method", "GET")
         path = scope.get("path", "")
-        if method == "POST" and path.startswith("/api/v1/") and path != "/api/v1/events":
+        rate_limit = (
+            method == "POST" and path.startswith("/api/v1/") and path != "/api/v1/events"
+        ) or (method == "GET" and path in _EXPENSIVE_GET_PATHS)
+        if rate_limit:
             client_host = (scope.get("client") or ("unknown", 0))[0] or "unknown"
             await self._api_rate.wait(client_host)
 

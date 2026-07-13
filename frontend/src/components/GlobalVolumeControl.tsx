@@ -33,10 +33,12 @@ function GlobalVolumePanel() {
   const volumesMatch =
     devices.length > 0 && devices.every((d) => d.volume === devices[0].volume);
 
-  if (!dragging && !pending && fleetMedian !== trackedMedian) {
-    setTrackedMedian(fleetMedian);
-    setDraft(fleetMedian);
-  }
+  useEffect(() => {
+    if (!dragging && !pending && fleetMedian !== trackedMedian) {
+      setTrackedMedian(fleetMedian);
+      setDraft(fleetMedian);
+    }
+  }, [dragging, pending, fleetMedian, trackedMedian]);
 
   useEffect(() => {
     latestLevel.current = draft;

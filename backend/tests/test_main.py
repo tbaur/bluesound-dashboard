@@ -22,7 +22,7 @@ def settings() -> Settings:
         discovery_cache_ttl=0,
         poll_interval=60,
         allow_non_private_ips=False,
-        cors_origins="http://localhost:5173",
+        cors_origins="http://127.0.0.1:8765,http://localhost:8765",
         sse_keepalive_seconds=0.2,
     )
 

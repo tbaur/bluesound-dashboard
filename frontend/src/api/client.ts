@@ -141,7 +141,13 @@ export const api = {
       json: { master_id: masterId, slave_id: slaveId },
     }),
   syncEnable: (primaryId: string) =>
-    request<void>('/sync/enable', {
+    request<{
+      action: string;
+      primary_id: string;
+      succeeded: number;
+      failed: number;
+      results: { device_id: string; name: string; ok: boolean }[];
+    }>('/sync/enable', {
       method: 'POST',
       json: { primary_id: primaryId },
     }),

@@ -239,6 +239,24 @@ async def test_settings_follows_port_redirect(settings: Settings) -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_settings_blocks_cross_host_redirect(settings: Settings) -> None:
+    """Redirects to a different host must not be followed (SSRF guard)."""
+    respx.get("http://192.168.1.20:11000/Settings").mock(
+        return_value=httpx.Response(
+            301,
+            headers={"Location": "http://169.254.169.254/latest/meta-data/"},
+        )
+    )
+    client = BluOSClient(settings)
+    try:
+        inputs = await client.get_inputs("192.168.1.20")
+        assert inputs is None
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
     pause = respx.get("http://192.168.1.20:11000/Pause").mock(
         return_value=httpx.Response(200, content=b"<ok/>")

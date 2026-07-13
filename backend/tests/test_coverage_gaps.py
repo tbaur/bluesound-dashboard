@@ -132,8 +132,11 @@ async def test_sync_enable_partial_failure(
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         response = await http.post("/api/v1/sync/enable", json={"primary_id": "primary"})
-        assert response.status_code == 502
-        assert response.json()["code"] == "sync_enable_partial"
+        assert response.status_code == 200
+        body = response.json()
+        assert body["succeeded"] == 1
+        assert body["failed"] == 1
+        assert body["primary_id"] == "primary"
     await client.aclose()
 
 

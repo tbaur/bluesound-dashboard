@@ -53,7 +53,7 @@ async def test_grace_preserves_ip_after_drop(monkeypatch: pytest.MonkeyPatch) ->
     ]
     service._snapshot.discovered_at = 1.0
 
-    async def empty_refresh(self: DiscoveryService):
+    async def empty_refresh(self: DiscoveryService, *, force: bool = True):
         now = __import__("time").time()
         self._grace_until[device_id] = now + settings.discovered_grace_ttl
         self._grace_ips[device_id] = "192.168.1.55"
@@ -66,7 +66,7 @@ async def test_grace_preserves_ip_after_drop(monkeypatch: pytest.MonkeyPatch) ->
         )
         return self._snapshot
 
-    monkeypatch.setattr(DiscoveryService, "_refresh_locked", empty_refresh)
+    monkeypatch.setattr(DiscoveryService, "_refresh", empty_refresh)
     await service.refresh()
     assert device_id not in service.snapshot.ips_by_id
     assert service.is_known_id(device_id)

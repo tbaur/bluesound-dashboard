@@ -7,7 +7,7 @@ import logging
 import re
 import time
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urljoin, urlparse
 
 import httpx
 
@@ -28,6 +28,9 @@ from app.models import (
 from app.validators import make_device_id, parse_bluos_host, sanitize_ip
 
 logger = logging.getLogger(__name__)
+
+_MAX_REDIRECTS = 5
+_REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
 class RateLimiter:
@@ -55,10 +58,11 @@ class BluOSClient:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
         self._owns_client = client is None
-        # BluOS may 301 /Settings from :11000 -> :11001; match urllib follow behavior.
+        # Manual redirects so each Location host is re-validated (BluOS may
+        # 301 /Settings from :11000 -> :11001 on the same device IP).
         self._client = client or httpx.AsyncClient(
             timeout=settings.device_http_timeout,
-            follow_redirects=True,
+            follow_redirects=False,
         )
         self._rate = RateLimiter(settings.control_rate_limit_seconds)
         self._sem = asyncio.Semaphore(settings.max_concurrent_device_calls)
@@ -70,6 +74,75 @@ class BluOSClient:
     def _url(self, ip: str, path: str, query: str = "") -> str:
         base = f"http://{ip}:{self.settings.bluos_port}{path}"
         return f"{base}?{query}" if query else base
+
+    def _redirect_target_allowed(
+        self,
+        origin_ip: str,
+        current_url: str,
+        location: str,
+    ) -> str | None:
+        """Return absolute next URL if redirect stays on the same allowed device IP."""
+        next_url = urljoin(current_url, location)
+        parsed = urlparse(next_url)
+        if parsed.scheme not in {"http", "https"}:
+            return None
+        host = parsed.hostname
+        if not host:
+            return None
+        sanitized_host = sanitize_ip(host)
+        if not sanitized_host or sanitized_host != origin_ip:
+            logger.warning(
+                "blocked_redirect_host",
+                extra={"device_ip": origin_ip, "redirect_host": host},
+            )
+            return None
+        if not self.settings.is_allowed_device_ip(sanitized_host):
+            logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized_host})
+            return None
+        return next_url
+
+    async def _follow_get(self, origin_ip: str, url: str) -> httpx.Response | None:
+        current = url
+        for _ in range(_MAX_REDIRECTS + 1):
+            response = await self._client.get(current)
+            if response.status_code not in _REDIRECT_STATUSES:
+                return response
+            location = response.headers.get("Location")
+            if not location:
+                return response
+            nxt = self._redirect_target_allowed(origin_ip, current, location)
+            if nxt is None:
+                return None
+            current = nxt
+        logger.warning("redirect_limit_exceeded", extra={"device_ip": origin_ip, "url": url})
+        return None
+
+    async def _follow_post(
+        self,
+        origin_ip: str,
+        url: str,
+        data: dict[str, str],
+    ) -> httpx.Response | None:
+        current = url
+        body = data
+        for _ in range(_MAX_REDIRECTS + 1):
+            response = await self._client.post(current, data=body)
+            if response.status_code not in _REDIRECT_STATUSES:
+                return response
+            location = response.headers.get("Location")
+            if not location:
+                return response
+            nxt = self._redirect_target_allowed(origin_ip, current, location)
+            if nxt is None:
+                return None
+            current = nxt
+            # 303 / non-307/308 redirects switch to GET without body.
+            if response.status_code in {301, 302, 303}:
+                get_response = await self._follow_get(origin_ip, current)
+                return get_response
+            body = data
+        logger.warning("redirect_limit_exceeded", extra={"device_ip": origin_ip, "url": url})
+        return None
 
     async def _get(
         self,
@@ -93,7 +166,9 @@ class BluOSClient:
         for attempt in range(retries if not control else 1):
             try:
                 async with self._sem:
-                    response = await self._client.get(url)
+                    response = await self._follow_get(sanitized, url)
+                if response is None:
+                    return None
                 if response.status_code >= 400:
                     logger.debug(
                         "bluos_http_error ip=%s path=%s status=%s",
@@ -136,8 +211,8 @@ class BluOSClient:
         url = self._url(sanitized, path)
         try:
             async with self._sem:
-                response = await self._client.post(url, data=data or {})
-            return response.status_code < 400
+                response = await self._follow_post(sanitized, url, data or {})
+            return response is not None and response.status_code < 400
         except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
             logger.debug("bluos_post_failed ip=%s path=%s err=%s", sanitized, path, exc)
             return False
@@ -394,8 +469,8 @@ class BluOSClient:
         url = self._web_ui_url(sanitized, path)
         try:
             async with self._sem:
-                response = await self._client.get(url)
-            if response.status_code >= 400:
+                response = await self._follow_get(sanitized, url)
+            if response is None or response.status_code >= 400:
                 return None
             text_body = response.text
             if len(text_body.encode("utf-8", errors="ignore")) > self.settings.max_xml_size:
@@ -418,8 +493,8 @@ class BluOSClient:
         url = self._web_ui_url(sanitized, path)
         try:
             async with self._sem:
-                response = await self._client.post(url, data=data)
-            return response.status_code < 400
+                response = await self._follow_post(sanitized, url, data)
+            return response is not None and response.status_code < 400
         except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
             logger.debug("web_ui_post_failed ip=%s path=%s err=%s", sanitized, path, exc)
             return False

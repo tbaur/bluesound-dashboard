@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from ipaddress import IPv4Address, ip_address
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator
@@ -11,13 +12,20 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DiscoveryMethod = Literal["mdns", "lsdp", "both"]
 
+# Repo root `.env` (docs) plus cwd `.env` when running from backend/
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_ENV_FILES = (
+    str(_REPO_ROOT / ".env"),
+    ".env",
+)
+
 
 class Settings(BaseSettings):
     """Environment-backed settings. Prefix: BSD_."""
 
     model_config = SettingsConfigDict(
         env_prefix="BSD_",
-        env_file=".env",
+        env_file=_ENV_FILES,
         env_file_encoding="utf-8",
         extra="ignore",
     )
@@ -25,7 +33,7 @@ class Settings(BaseSettings):
     host: str = "127.0.0.1"
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: str = "INFO"
-    cors_origins: str = "http://localhost:5173"
+    cors_origins: str = "http://127.0.0.1:8765,http://localhost:8765"
 
     discovery_method: DiscoveryMethod = "both"
     discovery_timeout: float = Field(default=5.0, ge=1.0, le=60.0)

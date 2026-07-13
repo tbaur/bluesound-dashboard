@@ -75,6 +75,14 @@ npm ci
 
 Copy [.env.example](.env.example) to `.env` in the repo root when you need non-default settings. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) and [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
+### Run locally
+
+```bash
+make run
+```
+
+Opens the UI at http://127.0.0.1:8765/ after the API is healthy on `:8000`. See [docs/RUNBOOK.md](docs/RUNBOOK.md).
+
 ### Running checks
 
 ```bash
@@ -96,9 +104,11 @@ npm run build
 
 ```
 bluesound-dashboard/
+├── Makefile              # make run — local stack (API then UI)
+├── scripts/run           # implementation for make run
 ├── backend/app/          # FastAPI app (discovery, BluOS client, API, poller)
 ├── backend/tests/        # Backend tests (≥90% coverage required in CI)
-├── frontend/src/         # React UI
+├── frontend/src/         # React UI (Vite on :8765)
 ├── frontend/tests/       # Frontend unit tests
 ├── docs/                 # Configuration + runbook
 ├── docs/images/          # README screenshots

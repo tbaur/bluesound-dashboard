@@ -61,13 +61,12 @@ export function PlayerDetailPage() {
   const [upgrade, setUpgrade] = useState<UpgradeStatus | null>(null);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [progressSecs, setProgressSecs] = useState(0);
   const progressKey = `${device?.id ?? ''}|${device?.secs ?? 0}|${device?.track ?? ''}|${device?.state ?? ''}`;
-  const [seenProgressKey, setSeenProgressKey] = useState(progressKey);
-  if (progressKey !== seenProgressKey) {
-    setSeenProgressKey(progressKey);
+  const [progressSecs, setProgressSecs] = useState(0);
+
+  useEffect(() => {
     setProgressSecs(device?.secs ?? 0);
-  }
+  }, [progressKey, device?.secs]);
 
   useEffect(() => {
     if (!id) return;

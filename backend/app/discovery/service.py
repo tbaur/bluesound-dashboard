@@ -37,7 +37,8 @@ class DiscoveryService:
     def __init__(self, settings: Settings, client: BluOSClient) -> None:
         self.settings = settings
         self.client = client
-        self._lock = asyncio.Lock()
+        self._data_lock = asyncio.Lock()
+        self._refresh_lock = asyncio.Lock()
         self._snapshot = DiscoverySnapshot()
         self._grace_until: dict[str, float] = {}
         self._grace_ips: dict[str, str] = {}
@@ -77,47 +78,56 @@ class DiscoveryService:
         return (time.time() - self._snapshot.discovered_at) < self.settings.discovery_cache_ttl
 
     async def get_devices(self, *, force: bool = False) -> DiscoverySnapshot:
-        async with self._lock:
+        async with self._data_lock:
             if not force and self.cache_fresh() and self._snapshot.devices:
                 return self._snapshot
-            return await self._refresh_locked()
+        return await self._refresh(force=force)
 
     async def refresh(self) -> DiscoverySnapshot:
-        async with self._lock:
-            return await self._refresh_locked()
+        """Always run discovery+enrich (used by poller / explicit rescan)."""
+        return await self._refresh(force=True)
 
-    async def _refresh_locked(self) -> DiscoverySnapshot:
-        endpoints, method_used = await self._discover_endpoints()
-        players = await self._enrich(endpoints)
-        now = time.time()
-        # Preserve grace for devices that disappeared
-        previous_ids = set(self._snapshot.ips_by_id)
-        new_ids = {p.id for p in players}
-        for missing in previous_ids - new_ids:
-            self._grace_until[missing] = now + self.settings.discovered_grace_ttl
-            grace_ip = self._snapshot.ips_by_id.get(missing)
-            if grace_ip:
-                self._grace_ips[missing] = grace_ip
-        for present in new_ids:
-            self._grace_until.pop(present, None)
-            self._grace_ips.pop(present, None)
+    async def _refresh(self, *, force: bool) -> DiscoverySnapshot:
+        """Discover + enrich outside the data lock; swap snapshot atomically."""
+        async with self._refresh_lock:
+            async with self._data_lock:
+                if not force and self.cache_fresh() and self._snapshot.devices:
+                    # Another refresh finished while we waited.
+                    return self._snapshot
+                previous_ids = set(self._snapshot.ips_by_id)
+                previous_ips = dict(self._snapshot.ips_by_id)
 
-        ips_by_id = {p.id: p.ip for p in players}
-        ids_by_ip = {p.ip: p.id for p in players}
-        self._snapshot = DiscoverySnapshot(
-            devices=players,
-            endpoints={e.ip: e for e in endpoints},
-            discovered_at=now,
-            method_used=method_used,
-            ips_by_id=ips_by_id,
-            ids_by_ip=ids_by_ip,
-        )
-        logger.info(
-            "discovery_complete count=%s method=%s",
-            len(players),
-            method_used,
-        )
-        return self._snapshot
+            endpoints, method_used = await self._discover_endpoints()
+            players = await self._enrich(endpoints)
+            now = time.time()
+
+            async with self._data_lock:
+                new_ids = {p.id for p in players}
+                for missing in previous_ids - new_ids:
+                    self._grace_until[missing] = now + self.settings.discovered_grace_ttl
+                    grace_ip = previous_ips.get(missing)
+                    if grace_ip:
+                        self._grace_ips[missing] = grace_ip
+                for present in new_ids:
+                    self._grace_until.pop(present, None)
+                    self._grace_ips.pop(present, None)
+
+                ips_by_id = {p.id: p.ip for p in players}
+                ids_by_ip = {p.ip: p.id for p in players}
+                self._snapshot = DiscoverySnapshot(
+                    devices=players,
+                    endpoints={e.ip: e for e in endpoints},
+                    discovered_at=now,
+                    method_used=method_used,
+                    ips_by_id=ips_by_id,
+                    ids_by_ip=ids_by_ip,
+                )
+                logger.info(
+                    "discovery_complete count=%s method=%s",
+                    len(players),
+                    method_used,
+                )
+                return self._snapshot
 
     async def _discover_endpoints(self) -> tuple[list[DiscoveredEndpoint], str]:
         method = self.settings.discovery_method
@@ -199,7 +209,7 @@ class DiscoveryService:
         return list(results)
 
     async def update_device(self, player: PlayerStatus) -> None:
-        async with self._lock:
+        async with self._data_lock:
             devices = [player if d.id == player.id else d for d in self._snapshot.devices]
             if not any(d.id == player.id for d in self._snapshot.devices):
                 devices.append(player)

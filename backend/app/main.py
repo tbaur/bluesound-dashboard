@@ -8,7 +8,7 @@ from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
@@ -114,6 +114,11 @@ def create_app() -> FastAPI:
         )
 
     app.include_router(router)
+
+    @app.get("/health")
+    async def health_alias() -> RedirectResponse:
+        """Ops footgun guard: never serve SPA HTML for /health."""
+        return RedirectResponse(url="/api/v1/healthz", status_code=307)
 
     static_dir = Path(settings.static_dir) if settings.static_dir else (
         Path(__file__).resolve().parents[2] / "frontend" / "dist"
