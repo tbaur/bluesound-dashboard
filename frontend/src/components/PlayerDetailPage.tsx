@@ -113,7 +113,7 @@ export function PlayerDetailPage() {
           </Link>
           <h1 className="brand dossier-title">{device.name}</h1>
           <p className="brand-sub">
-            {[device.full_model || device.model, device.device_class, device.fw ? `fw ${device.fw}` : '']
+            {[device.full_model || device.model, device.fw ? `fw ${device.fw}` : '']
               .filter(Boolean)
               .join(' · ')}
           </p>
