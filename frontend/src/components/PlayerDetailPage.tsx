@@ -233,8 +233,11 @@ export function PlayerDetailPage() {
           </button>
         </section>
 
-        <section className="panel">
-          <h2>Inputs</h2>
+        <details className="panel panel-collapse">
+          <summary>
+            <h2>Inputs</h2>
+            <span className="card-meta">{inputs.length}</span>
+          </summary>
           <ul className="list">
             {inputs.map((input) => (
               <li key={input.id || input.name} data-selected={String(input.selected)}>
@@ -258,27 +261,34 @@ export function PlayerDetailPage() {
               </li>
             ))}
           </ul>
-        </section>
+        </details>
 
-        <section className="panel">
-          <h2>Presets</h2>
-          <ul className="list">
-            {presets.map((preset) => (
-              <li key={preset.id}>
-                <span>{preset.name || `Preset ${preset.id}`}</span>
-                <button
-                  type="button"
-                  className="btn"
-                  onClick={() =>
-                    void control(device.id, () => api.playPreset(device.id, preset.id))
-                  }
-                >
-                  Play
-                </button>
-              </li>
-            ))}
-          </ul>
-        </section>
+        <details className="panel panel-collapse">
+          <summary>
+            <h2>Presets</h2>
+            <span className="card-meta">{presets.length}</span>
+          </summary>
+          {presets.length === 0 ? (
+            <div className="empty">No presets</div>
+          ) : (
+            <ul className="list">
+              {presets.map((preset) => (
+                <li key={preset.id}>
+                  <span>{preset.name || `Preset ${preset.id}`}</span>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() =>
+                      void control(device.id, () => api.playPreset(device.id, preset.id))
+                    }
+                  >
+                    Play
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </details>
 
         <section className="panel">
           <h2>Bluetooth</h2>
