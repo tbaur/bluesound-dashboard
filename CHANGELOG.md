@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.3.0...v0.4.0) (2026-07-13)
+
+
+### Features
+
+* add House page, player settings, and firmware tools ([#22](https://github.com/tbaur/bluesound-dashboard/issues/22)) ([7185400](https://github.com/tbaur/bluesound-dashboard/commit/71854003beb61fc12e0d71609dab980237563fd3))
+
 ## [0.3.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.2.1...v0.3.0) (2026-07-13)
 
 
