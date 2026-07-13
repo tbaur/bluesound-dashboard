@@ -118,6 +118,19 @@ describe('HousePage actions', () => {
     });
   });
 
+  it('lists each device once with status and firmware in the same row', () => {
+    renderHouse();
+    expect(screen.getAllByRole('heading', { name: 'Devices' })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Firmware' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Rooms' })).not.toBeInTheDocument();
+    expect(screen.getAllByText('Kitchen')).toHaveLength(1);
+    expect(screen.getAllByText('Living')).toHaveLength(1);
+    expect(screen.getByText('online · play · vol 20 · fw 4.16.6')).toBeInTheDocument();
+    expect(
+      screen.getByText('online · play · vol 20 · fw 4.10.0 · behind house newest'),
+    ).toBeInTheDocument();
+  });
+
   it('runs Check all for upgrades and sets a toast', async () => {
     renderHouse();
     fireEvent.click(screen.getByRole('button', { name: 'Check all for upgrades' }));

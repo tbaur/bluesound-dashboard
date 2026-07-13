@@ -57,7 +57,7 @@ export function HousePage() {
     for (const row of upgradeReport?.results ?? []) {
       byId.set(row.device_id, row);
     }
-    return { unique, newest, skew: unique.length > 1, byId };
+    return { newest, byId };
   }, [sorted, upgradeReport]);
 
   const run = (key: string, action: () => Promise<void>) => {
@@ -127,7 +127,7 @@ export function HousePage() {
         </div>
         <div className="dossier-header-badges">
           <span className="badge" data-role="primary">
-            {devices.length} player{devices.length === 1 ? '' : 's'}
+            {devices.length} device{devices.length === 1 ? '' : 's'}
           </span>
           {status.meta.map((item) => (
             <span key={item} className="badge">
@@ -149,62 +149,33 @@ export function HousePage() {
       ) : null}
 
       <section className="panel">
-        <h2>At a glance</h2>
-        <dl className="dossier-metrics">
-          <div>
-            <dt>Players</dt>
-            <dd>{devices.length}</dd>
-          </div>
-          <div>
-            <dt>Playing</dt>
-            <dd>{devices.filter((d) => d.state === 'play' || d.state === 'stream').length}</dd>
-          </div>
-          <div>
-            <dt>Groups</dt>
-            <dd>{groupCount}</dd>
-          </div>
-          <div>
-            <dt>Muted</dt>
-            <dd>{devices.filter((d) => d.muted).length}</dd>
-          </div>
-        </dl>
-      </section>
-
-      <section className="panel">
-        <h2>Firmware</h2>
-        <p className="card-meta" style={{ marginBottom: 12 }}>
-          {firmware.unique.length === 0
-            ? 'No firmware versions reported yet.'
-            : firmware.skew
-              ? `Version skew across the house: ${firmware.unique.join(', ')}.`
-              : `All reported players on ${firmware.unique[0]}.`}
-          {upgradeReport
-            ? ` Last check: ${upgradeReport.updates_available} update${upgradeReport.updates_available === 1 ? '' : 's'} available${upgradeReport.failed ? `, ${upgradeReport.failed} failed` : ''}.`
-            : ' Use Check all to query each player’s upgrade page.'}{' '}
-          Installs still require the BluOS Controller app.
-        </p>
+        <h2>Devices</h2>
         <ul className="house-room-list">
           {sorted.map((device) => {
             const row = firmware.byId.get(device.id);
             const behind = Boolean(
               firmware.newest && device.fw && compareFw(device.fw, firmware.newest) < 0,
             );
-            let note = '';
+            let fwNote = '';
             if (row) {
-              if (!row.ok) note = ' · check failed';
-              else if (row.update_available) note = ' · update available';
-              else note = ' · up to date';
+              if (!row.ok) fwNote = 'check failed';
+              else if (row.update_available) fwNote = 'update available';
+              else fwNote = 'up to date';
             } else if (behind) {
-              note = ' · behind house newest';
+              fwNote = 'behind house newest';
             }
+            const meta = [
+              device.status,
+              device.state || null,
+              `vol ${device.volume}`,
+              device.fw ? `fw ${device.fw}` : 'fw ?',
+              fwNote || null,
+            ].filter(Boolean);
             return (
               <li key={device.id}>
                 <Link to={`/player/${device.id}`}>
                   <span>{device.name}</span>
-                  <span className="card-meta">
-                    {device.fw || 'fw ?'}
-                    {note}
-                  </span>
+                  <span className="card-meta">{meta.join(' · ')}</span>
                 </Link>
               </li>
             );
@@ -328,24 +299,6 @@ export function HousePage() {
             {busy === 'hard' ? '…' : 'Hard reboot all'}
           </button>
         </div>
-      </section>
-
-      <section className="panel">
-        <h2>Rooms</h2>
-        <ul className="house-room-list">
-          {sorted.map((device) => (
-            <li key={device.id}>
-              <Link to={`/player/${device.id}`}>
-                <span>{device.name}</span>
-                <span className="card-meta">
-                  {device.status}
-                  {device.state ? ` · ${device.state}` : ''}
-                  {` · vol ${device.volume}`}
-                </span>
-              </Link>
-            </li>
-          ))}
-        </ul>
       </section>
     </div>
   );
