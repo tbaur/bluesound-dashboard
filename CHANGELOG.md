@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.3.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.2.1...v0.3.0) (2026-07-13)
+
+
+### Features
+
+* **ui:** redesign player detail and align BluOS API to v1.7 ([#19](https://github.com/tbaur/bluesound-dashboard/issues/19)) ([292cc3a](https://github.com/tbaur/bluesound-dashboard/commit/292cc3acadfd82c17b7b11be72032bf1abce10b8))
+
 ## [0.2.1](https://github.com/tbaur/bluesound-dashboard/compare/v0.2.0...v0.2.1) (2026-07-12)
 
 
