@@ -119,10 +119,20 @@ a {
 }
 
 .global-volume-value {
-  width: 28px;
+  min-width: 28px;
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+
+.global-volume-db {
+  font-size: 0.72rem;
+  color: var(--muted);
+  font-family: var(--font-body);
 }
 
 .fleet-actions {
