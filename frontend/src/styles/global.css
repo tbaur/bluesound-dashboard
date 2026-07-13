@@ -1040,6 +1040,18 @@ button.sync-chip-primary {
   text-underline-offset: 2px;
 }
 
+.dossier-volume {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.dossier-volume h3 {
+  margin: 0 0 10px;
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+}
+
 .dossier-advanced {
   display: grid;
   gap: 22px;

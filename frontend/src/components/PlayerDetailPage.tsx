@@ -241,21 +241,26 @@ export function PlayerDetailPage() {
             </div>
           )}
         </dl>
-        <div className="volume-row" style={{ marginTop: 16 }}>
-          <input
-            type="range"
-            min={0}
-            max={100}
-            value={device.volume}
-            onPointerDown={() => useFleetStore.getState().holdVolume(device.id)}
-            onChange={(e) => {
-              const level = Number(e.target.value);
-              void control(device.id, () => api.setVolume(device.id, level), { volume: level });
-            }}
-          />
-          <button type="button" className="btn" onClick={() => void toggleMute(device.id)}>
-            {device.muted ? 'Unmute' : 'Mute'}
-          </button>
+        <div className="dossier-volume">
+          <h3>Set volume</h3>
+          <div className="volume-row">
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={device.volume}
+              aria-label="Set volume"
+              onPointerDown={() => useFleetStore.getState().holdVolume(device.id)}
+              onChange={(e) => {
+                const level = Number(e.target.value);
+                void control(device.id, () => api.setVolume(device.id, level), { volume: level });
+              }}
+            />
+            <span className="volume-value">{device.volume}</span>
+            <button type="button" className="btn" onClick={() => void toggleMute(device.id)}>
+              {device.muted ? 'Unmute' : 'Mute'}
+            </button>
+          </div>
         </div>
       </section>
 
