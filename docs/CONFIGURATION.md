@@ -4,6 +4,8 @@ All settings are environment variables with the `BSD_` prefix. Copy [.env.exampl
 
 Defaults are tuned for local development: bind localhost, discover via mDNS+LSDP, poll every few seconds, and throttle both outbound BluOS calls and inbound mutating API requests.
 
+BluOS control paths follow Custom Integration API **v1.7** (queue via `/Playlist`, capture inputs via `/Settings?id=capture`, Bluetooth via `/audiomodes`). Device uptime is read from the player web UI on port 80 (`/diagnostics`), not BluOS `:11000`.
+
 ## Network exposure
 
 BluOS players have no authentication — each device already exposes control on the LAN (and this dashboard consolidates that). There is nothing extra to configure for device auth.

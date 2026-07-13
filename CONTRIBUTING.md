@@ -2,6 +2,8 @@
 
 Thanks for contributing. This guide covers bugs, features, local setup, and pull requests.
 
+Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
+
 ## How to contribute
 
 ### Reporting bugs
@@ -51,7 +53,7 @@ Example: `feat: add multi-room group create`
 
 ### Prerequisites
 
-- Python 3.10+
+- Python 3.10+ (CI: 3.10, 3.13, 3.14)
 - Node.js 22+
 - Git
 
@@ -80,7 +82,7 @@ Copy [.env.example](.env.example) to `.env` in the repo root when you need non-d
 cd backend
 ruff check app tests
 mypy app
-pytest
+pytest  # requires ≥90% coverage (`--cov-fail-under=90`)
 
 # Frontend
 cd frontend
@@ -95,10 +97,13 @@ npm run build
 ```
 bluesound-dashboard/
 ├── backend/app/          # FastAPI app (discovery, BluOS client, API, poller)
-├── backend/tests/        # Backend tests
+├── backend/tests/        # Backend tests (≥90% coverage required in CI)
 ├── frontend/src/         # React UI
-├── frontend/tests/       # Frontend tests
+├── frontend/tests/       # Frontend unit tests
 ├── docs/                 # Configuration + runbook
+├── docs/images/          # README screenshots
+├── CODE_OF_CONDUCT.md
+├── SECURITY.md
 └── .github/              # CI, Dependabot, issue/PR templates
 ```
 
@@ -118,4 +123,4 @@ By contributing, you agree that your contributions are licensed under the Apache
 
 - Open an issue for discussion
 - [README.md](README.md) — overview and quick start
-- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) · [docs/RUNBOOK.md](docs/RUNBOOK.md) · [SECURITY.md](SECURITY.md) · [RELEASING.md](RELEASING.md)
+- [docs/CONFIGURATION.md](docs/CONFIGURATION.md) · [docs/RUNBOOK.md](docs/RUNBOOK.md) · [SECURITY.md](SECURITY.md) · [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) · [RELEASING.md](RELEASING.md)

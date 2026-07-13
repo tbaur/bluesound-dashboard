@@ -1,8 +1,15 @@
 # Bluesound Dashboard
 
-Consolidated LAN dashboard for Bluesound / BluOS players. Discovers devices on the network (mDNS + LSDP) and exposes playback, volume, queue, inputs, presets, Bluetooth, and multi-room controls through a live web UI.
+[![Tests](https://github.com/tbaur/bluesound-dashboard/actions/workflows/test.yml/badge.svg)](https://github.com/tbaur/bluesound-dashboard/actions/workflows/test.yml)
+[![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![Node](https://img.shields.io/badge/node-22%2B-green.svg)](https://nodejs.org/)
+
+Consolidated LAN dashboard for Bluesound / BluOS players (Custom Integration API **v1.7**). Discovers devices on the network (mDNS + LSDP) and exposes playback, volume, queue, inputs, presets, Bluetooth, and multi-room controls through a live web UI.
 
 Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controller). This dashboard is self-contained (no runtime dependency on the CLI).
+
+![Fleet view with live players, global volume, and house remote](docs/images/fleet.png)
 
 ## Features
 
@@ -18,7 +25,7 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 
 ## Requirements
 
-- Python 3.10+ (CI uses 3.12)
+- Python 3.10+ (CI: 3.10, 3.13, 3.14)
 - Node.js 22+
 - Same LAN as your Bluesound players (discovery and control stay on the local network)
 
@@ -49,6 +56,7 @@ Configuration and network exposure: [docs/CONFIGURATION.md](docs/CONFIGURATION.m
 - [Runbook](docs/RUNBOOK.md) — start, health, failures, logs
 - [Changelog](CHANGELOG.md) — version history
 - [Security](SECURITY.md) — vulnerability reporting
+- [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Releasing](RELEASING.md)
 - [Contributing](CONTRIBUTING.md)
 

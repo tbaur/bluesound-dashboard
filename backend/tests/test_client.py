@@ -8,6 +8,7 @@ from app.bluos.client import BluOSClient
 from app.config import Settings
 from tests.fixtures.xml_samples import (
     CAPTURE_SETTINGS,
+    PRESETS,
     QUEUE,
     STATUS,
     STATUS_CAPTURE_OPTICAL,
@@ -238,6 +239,67 @@ async def test_settings_follows_port_redirect(settings: Settings) -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
+    pause = respx.get("http://192.168.1.20:11000/Pause").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    play = respx.get("http://192.168.1.20:11000/Play").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    soft = respx.post("http://192.168.1.20:11000/Reboot").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    hard = respx.post("http://192.168.1.20:11000/reboot").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    respx.get("http://192.168.1.20:11000/Presets").mock(
+        return_value=httpx.Response(200, content=PRESETS)
+    )
+    preset_play = respx.get("http://192.168.1.20:11000/Preset").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    bt = respx.get("http://192.168.1.20:11000/audiomodes").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    add = respx.get("http://192.168.1.20:11000/AddSlave").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    remove = respx.get("http://192.168.1.20:11000/RemoveSlave").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    volume = respx.get("http://192.168.1.20:11000/Volume").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    client = BluOSClient(settings)
+    try:
+        assert await client.toggle("192.168.1.20", state="play") is True
+        assert pause.called
+        assert await client.toggle("192.168.1.20", state="pause") is True
+        assert play.called
+        assert await client.reboot("192.168.1.20", soft=True) is True
+        assert soft.called
+        assert await client.reboot("192.168.1.20", soft=False) is True
+        assert hard.called
+        presets = await client.get_presets("192.168.1.20")
+        assert presets is not None
+        assert presets[0].name == "Morning"
+        assert await client.play_preset("192.168.1.20", 1) is True
+        assert "id=1" in str(preset_play.calls.last.request.url)
+        assert await client.play_preset("192.168.1.20", 0) is False
+        assert await client.set_bluetooth_mode("192.168.1.20", 1) is True
+        assert "bluetoothAutoplay=1" in str(bt.calls.last.request.url)
+        assert await client.add_sync_slave("192.168.1.20", "192.168.1.21") is True
+        assert add.called
+        assert await client.remove_sync_slave("192.168.1.20", "192.168.1.21") is True
+        assert remove.called
+        assert await client.adjust_volume("192.168.1.20", 5, 10) is True
+        assert "level=15" in str(volume.calls.last.request.url)
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_get_uptime_uses_port_80_diagnostics(settings: Settings) -> None:
     respx.get("http://192.168.1.20/diagnostics").mock(
         return_value=httpx.Response(
@@ -250,3 +312,22 @@ async def test_get_uptime_uses_port_80_diagnostics(settings: Settings) -> None:
         assert await client.get_uptime("192.168.1.20") == "12h3m"
     finally:
         await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_uptime_fallbacks_and_errors(settings: Settings) -> None:
+    respx.get("http://192.168.1.20/diagnostics").mock(
+        return_value=httpx.Response(200, text="<p>Uptime: </p> 9d4h")
+    )
+    client = BluOSClient(settings)
+    try:
+        assert await client.get_uptime("192.168.1.20") == "9d4h"
+        assert await client.get_uptime("not-an-ip") is None
+    finally:
+        await client.aclose()
+
+
+def test_input_type_from_icon_hints() -> None:
+    assert BluOSClient._input_type_from_capture("Mystery", "ic_optical.png") == "spdif"
+    assert BluOSClient._input_type_from_capture("Unknown Port", "") == "analog"

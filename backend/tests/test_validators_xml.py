@@ -1,4 +1,4 @@
-from app.bluos.xml import safe_parse_xml
+from app.bluos.xml import attr, safe_parse_xml, text
 from app.config import Settings
 from app.validators import make_device_id, sanitize_ip, validate_device_id
 
@@ -40,3 +40,32 @@ def test_safe_parse_xml_accepts_normal() -> None:
     root = safe_parse_xml(b"<status><state>play</state></status>", settings, "test")
     assert root is not None
     assert root.findtext("state") == "play"
+
+
+def test_safe_parse_xml_rejects_empty_and_invalid() -> None:
+    settings = Settings()
+    assert safe_parse_xml(b"", settings) is None
+    assert safe_parse_xml(b"   ", settings) is None
+    assert safe_parse_xml(b"<not-xml", settings) is None
+
+
+def test_safe_parse_xml_rejects_too_large() -> None:
+    settings = Settings(max_xml_size=1024)
+    assert safe_parse_xml(b"<root>" + (b"x" * 1100) + b"</root>", settings) is None
+
+
+def test_safe_parse_xml_rejects_too_many_elements() -> None:
+    settings = Settings(max_xml_elements=100)
+    kids = b"".join(b"<n/>" for _ in range(120))
+    assert safe_parse_xml(b"<a>" + kids + b"</a>", settings) is None
+
+
+def test_text_and_attr_helpers() -> None:
+    settings = Settings()
+    root = safe_parse_xml(b'<status vol="9"><state>play</state></status>', settings)
+    assert root is not None
+    assert text(root, "state") == "play"
+    assert text(root, "missing", "fallback") == "fallback"
+    assert text(None, "state", "x") == "x"
+    assert attr(root, "vol") == "9"
+    assert attr(None, "vol", "0") == "0"

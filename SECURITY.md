@@ -4,14 +4,15 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 0.2.x   | ✅ Active support |
+| 0.3.x   | ✅ Active support |
+| < 0.3   | ❌ No longer supported |
 
 ## Reporting a Vulnerability
 
 If you discover a security vulnerability, please report it responsibly:
 
 1. **Do NOT open a public issue**
-2. Email the maintainer directly or use GitHub's private vulnerability reporting
+2. Use GitHub's private vulnerability reporting (Security tab), or contact the maintainer directly
 3. Include:
    - Description of the vulnerability
    - Steps to reproduce
