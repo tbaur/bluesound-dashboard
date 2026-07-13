@@ -1,6 +1,7 @@
 import type {
   ApiErrorBody,
   AudioInput,
+  DiagnoseResponse,
   DevicesResponse,
   PlayerStatus,
   Preset,
@@ -64,21 +65,7 @@ export const api = {
   toggle: (id: string) => request<void>(`/devices/${id}/toggle`, { method: 'POST' }),
   adjustVolume: (id: string, delta: number) =>
     request<void>(`/devices/${id}/volume/adjust`, { method: 'POST', json: { delta } }),
-  diagnose: (id: string) =>
-    request<{
-      device_id: string;
-      ip: string;
-      name: string;
-      model: string;
-      full_model: string;
-      fw: string;
-      state: string;
-      service: string;
-      volume: number;
-      muted: boolean;
-      sync_role: string;
-      uptime: string | null;
-    }>(`/devices/${id}/diagnose`),
+  diagnose: (id: string) => request<DiagnoseResponse>(`/devices/${id}/diagnose`),
   reboot: (id: string, soft = false) =>
     request<void>(`/devices/${id}/reboot`, { method: 'POST', json: { soft } }),
   setVolume: (id: string, level: number) =>

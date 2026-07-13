@@ -5,6 +5,7 @@ import {
   fleetHouseStatusLine,
 } from '@/lib/fleetStatus';
 import { useFleetStore } from '@/store/fleetStore';
+import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
 
 function medianVolume(volumes: number[]): number {
   if (volumes.length === 0) return 0;
@@ -14,6 +15,23 @@ function medianVolume(volumes: number[]): number {
     return Math.round((sorted[mid - 1] + sorted[mid]) / 2);
   }
   return sorted[mid];
+}
+
+function representativeDb(
+  devices: { volume: number; db: string }[],
+  targetVolume: number,
+): string {
+  const exact = devices.find((d) => d.volume === targetVolume && d.db.trim());
+  if (exact) return exact.db.trim();
+  const values = devices
+    .map((d) => Number.parseFloat(d.db))
+    .filter((n) => Number.isFinite(n))
+    .sort((a, b) => a - b);
+  if (values.length === 0) return '';
+  const mid = Math.floor(values.length / 2);
+  const median =
+    values.length % 2 === 0 ? (values[mid - 1] + values[mid]) / 2 : values[mid];
+  return Number.isInteger(median) ? String(median) : median.toFixed(1);
 }
 
 function GlobalVolumePanel() {
@@ -30,6 +48,7 @@ function GlobalVolumePanel() {
   const [trackedMedian, setTrackedMedian] = useState(fleetMedian);
   const volumesMatch =
     devices.length > 0 && devices.every((d) => d.volume === devices[0].volume);
+  const draftDb = representativeDb(devices, draft);
 
   if (!dragging && !pending && fleetMedian !== trackedMedian) {
     setTrackedMedian(fleetMedian);
@@ -101,6 +120,11 @@ function GlobalVolumePanel() {
         </span>
       </div>
       <div className="volume-row global-volume-row">
+        <VolumeNudgeButtons
+          value={draft}
+          disabled={pending}
+          onChange={(level) => onInput(level)}
+        />
         <label htmlFor="global-vol">Vol</label>
         <input
           id="global-vol"
@@ -120,7 +144,10 @@ function GlobalVolumePanel() {
           onPointerCancel={endDrag}
           onChange={(e) => onInput(Number(e.target.value))}
         />
-        <span className="global-volume-value">{draft}</span>
+        <span className="global-volume-value" title={draftDb ? `${draft}% · ${draftDb} dB` : `${draft}%`}>
+          <span>{draft}</span>
+          {draftDb ? <span className="global-volume-db">{draftDb} dB</span> : null}
+        </span>
       </div>
     </section>
   );

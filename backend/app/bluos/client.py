@@ -51,7 +51,11 @@ class BluOSClient:
     def __init__(self, settings: Settings, client: httpx.AsyncClient | None = None) -> None:
         self.settings = settings
         self._owns_client = client is None
-        self._client = client or httpx.AsyncClient(timeout=settings.device_http_timeout)
+        # BluOS may 301 /Settings from :11000 -> :11001; match urllib follow behavior.
+        self._client = client or httpx.AsyncClient(
+            timeout=settings.device_http_timeout,
+            follow_redirects=True,
+        )
         self._rate = RateLimiter(settings.control_rate_limit_seconds)
         self._sem = asyncio.Semaphore(settings.max_concurrent_device_calls)
 
@@ -176,7 +180,10 @@ class BluOSClient:
         return {
             "name": attr(root, "name") or "Unknown",
             "model": attr(root, "modelName") or attr(root, "brand") or "",
+            "model_code": attr(root, "model"),
             "brand": attr(root, "brand"),
+            "device_class": attr(root, "class"),
+            "mac": attr(root, "mac"),
             "db": attr(root, "db"),
             "fw": attr(root, "version"),
             "master": master,
@@ -187,11 +194,28 @@ class BluOSClient:
             "muted": muted,
         }
 
+    def _absolute_media_url(self, ip: str, path: str) -> str:
+        value = (path or "").strip()
+        if not value:
+            return ""
+        if value.startswith(("http://", "https://")):
+            return value
+        if value.startswith("/"):
+            return f"http://{ip}:{self.settings.bluos_port}{value}"
+        return value
+
+    @staticmethod
+    def _parse_int(raw: str, default: int = 0) -> int:
+        try:
+            return int(float(raw))
+        except (TypeError, ValueError):
+            return default
+
     def _parse_status(self, status_xml: bytes, ip: str) -> dict[str, Any]:
         root = safe_parse_xml(status_xml, self.settings, ip)
         if root is None:
             return {}
-        service = text(root, "service", "Library/Input")
+        service = text(root, "service")
         service_name = text(root, "serviceName")
         if service == "Raat":
             service = "Roon"
@@ -203,15 +227,34 @@ class BluOSClient:
         except ValueError:
             volume = 0
         mute_raw = text(root, "mute", "0")
+        image = text(root, "image") or text(root, "currentImage")
+        group_volume_raw = text(root, "groupVolume")
+        group_volume: int | None = None
+        if group_volume_raw:
+            try:
+                group_volume = max(0, min(100, int(group_volume_raw)))
+            except ValueError:
+                group_volume = None
         return {
             "volume": max(0, min(100, volume)),
             "muted": mute_raw in {"1", "true", "True"},
             "state": text(root, "state", "stop") or "stop",
             "service": display_service,
+            "service_id": service,
             "track": text(root, "title1") or text(root, "title"),
             "artist": text(root, "artist") or text(root, "title2"),
             "album": text(root, "album") or text(root, "title3"),
             "quality": text(root, "quality"),
+            "stream_format": text(root, "streamFormat"),
+            "image": self._absolute_media_url(ip, image),
+            "secs": self._parse_int(text(root, "secs")),
+            "totlen": self._parse_int(text(root, "totlen")),
+            "can_seek": text(root, "canSeek") in {"1", "true", "True"},
+            "input_type_index": text(root, "inputTypeIndex"),
+            "input_id": text(root, "inputId"),
+            "group_name": text(root, "groupName"),
+            "group_volume": group_volume,
+            "db": text(root, "db"),
         }
 
     async def get_player_status(
@@ -246,6 +289,8 @@ class BluOSClient:
             player.name = sync["name"]
             player.model = sync["model"]
             player.brand = sync["brand"]
+            player.device_class = sync.get("device_class", "")
+            player.mac = sync.get("mac", "")
             player.db = sync["db"]
             player.fw = sync["fw"]
             player.master = sync["master"]
@@ -272,10 +317,23 @@ class BluOSClient:
                 player.muted = status.get("muted", player.muted)
             player.state = status.get("state", "stop")
             player.service = status.get("service", "")
+            player.service_id = status.get("service_id", "")
             player.track = status.get("track", "")
             player.artist = status.get("artist", "")
             player.album = status.get("album", "")
             player.quality = status.get("quality", "")
+            player.stream_format = status.get("stream_format", "")
+            player.image = status.get("image", "")
+            player.secs = status.get("secs", 0)
+            player.totlen = status.get("totlen", 0)
+            player.can_seek = status.get("can_seek", False)
+            player.input_type_index = status.get("input_type_index", "")
+            if status.get("group_name") and not player.group:
+                player.group = status["group_name"]
+            if status.get("group_volume") is not None:
+                player.group_volume = status["group_volume"]
+            if status.get("db"):
+                player.db = status["db"]
 
         if player.brand and player.brand not in player.model:
             player.full_model = f"{player.brand} {player.model}".strip()
@@ -311,10 +369,28 @@ class BluOSClient:
         return await self._post(ip, "/reboot", data={"yes": "1"}, control=True)
 
     async def get_uptime(self, ip: str) -> str | None:
-        html = await self._get_text(ip, "/diagnostics")
-        if not html:
+        """Read uptime from the device web UI (port 80), not BluOS :11000."""
+        sanitized = sanitize_ip(ip)
+        if not sanitized:
+            return None
+        if not self.settings.is_allowed_device_ip(sanitized):
+            logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
+            return None
+        url = f"http://{sanitized}/diagnostics"
+        try:
+            async with self._sem:
+                response = await self._client.get(url)
+            if response.status_code >= 400:
+                return None
+            html = response.text
+        except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
+            logger.debug("diagnostics_failed ip=%s err=%s", sanitized, exc)
             return None
         match = re.search(r"Uptime:</div>\s*<div[^>]*>(.*?)</div>", html, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        # Fallback for alternate diagnostics markup.
+        match = re.search(r"Uptime:\s*</[^>]+>\s*([^<\s]+)", html, re.IGNORECASE)
         if match:
             return match.group(1).strip()
         return None
@@ -332,8 +408,48 @@ class BluOSClient:
             await self._get(ip, "/Volume", query=f"mute={1 if mute else 0}", control=True)
         ) is not None
 
+    _INPUT_HINTS = (
+        ("hdmi arc", "arc"),
+        ("earc", "earc"),
+        ("optical", "spdif"),
+        ("analog", "analog"),
+        ("line in", "analog"),
+        ("coax", "coax"),
+        ("phono", "phono"),
+        ("vinyl", "phono"),
+        ("computer", "computer"),
+        ("aes", "aesebu"),
+        ("balanced", "balanced"),
+        ("microphone", "microphone"),
+        ("bluetooth", "bluetooth"),
+    )
+    _ICON_HINTS = (
+        ("ic_optical", "spdif"),
+        ("ic_analog", "analog"),
+        ("ic_tv", "arc"),
+        ("ic_hdmi", "arc"),
+        ("ic_phono", "phono"),
+        ("ic_coax", "coax"),
+        ("ic_bluetooth", "bluetooth"),
+    )
+    _BT_MODE_MAP = {"0": "Manual", "1": "Automatic", "2": "Guest", "3": "Disabled"}
+
+    @classmethod
+    def _input_type_from_capture(cls, display_name: str, icon: str) -> str:
+        """Map capture menu labels/icons to v1.7 inputTypeIndex type tokens."""
+        name = (display_name or "").lower()
+        for needle, type_name in cls._INPUT_HINTS:
+            if needle in name:
+                return type_name
+        icon_l = (icon or "").lower()
+        for needle, type_name in cls._ICON_HINTS:
+            if needle in icon_l:
+                return type_name
+        return "analog"
+
     async def get_queue(self, ip: str) -> QueueResponse | None:
-        raw = await self._get(ip, "/Queue")
+        """Play queue via BluOS v1.7 GET /Playlist."""
+        raw = await self._get(ip, "/Playlist", query="start=0&end=500")
         if not raw:
             return None
         root = safe_parse_xml(raw, self.settings, ip)
@@ -341,60 +457,131 @@ class BluOSClient:
             return None
         items = [
             QueueItem(
-                title=text(item, "title"),
-                artist=text(item, "artist"),
-                album=text(item, "album"),
-                image=text(item, "image"),
-                service=text(item, "service"),
+                title=text(song, "title"),
+                artist=text(song, "art") or text(song, "artist"),
+                album=text(song, "alb") or text(song, "album"),
+                image=text(song, "image"),
+                service=text(song, "service"),
             )
-            for item in root.findall("item")
+            for song in root.findall("song")
         ]
-        return QueueResponse(items=items, count=len(items))
+        length_attr = root.attrib.get("length")
+        length_el = root.findtext("length")
+        try:
+            count = int(
+                length_attr
+                if length_attr is not None
+                else (length_el if length_el is not None else len(items))
+            )
+        except ValueError:
+            count = len(items)
+        return QueueResponse(items=items, count=count)
 
     async def clear_queue(self, ip: str) -> bool:
-        return (await self._get(ip, "/Queue", query="clear=1", control=True)) is not None
+        """Clear play queue via BluOS v1.7 GET /Clear."""
+        return (await self._get(ip, "/Clear", control=True)) is not None
 
     async def move_queue_item(self, ip: str, from_index: int, to_index: int) -> bool:
+        """Move queue track via BluOS v1.7 GET /Move?old=&new=."""
         return (
             await self._get(
                 ip,
-                "/Queue",
-                query=f"move={from_index}&to={to_index}",
+                "/Move",
+                query=f"old={from_index}&new={to_index}",
                 control=True,
             )
         ) is not None
 
     async def get_inputs(self, ip: str) -> list[AudioInput] | None:
-        raw = await self._get(ip, "/AudioInputs")
+        """List capture inputs via BluOS v1.7 Settings?id=capture."""
+        raw = await self._get(ip, "/Settings", query="id=capture&schemaVersion=32")
         if not raw:
             return None
         root = safe_parse_xml(raw, self.settings, ip)
         if root is None:
             return None
-        return [
-            AudioInput(
-                name=text(inp, "name"),
-                type=text(inp, "type"),
-                selected=inp.get("selected", "0") == "1",
+
+        active_type_index = ""
+        active_input_id = ""
+        active_name = ""
+        status_raw = await self._get(ip, "/Status")
+        if status_raw:
+            status = self._parse_status(status_raw, ip)
+            if status.get("service_id") == "Capture":
+                active_type_index = str(status.get("input_type_index") or "")
+                active_input_id = str(status.get("input_id") or "")
+                active_name = str(status.get("track") or "")
+
+        inputs: list[AudioInput] = []
+        type_counts: dict[str, int] = {}
+        for group in root.iter("menuGroup"):
+            group_id = group.get("id", "")
+            if not group_id.startswith("capture-") or group_id == "capture":
+                continue
+            if "bluetooth" in group_id.lower():
+                continue
+            name = group.get("displayName", "") or group_id
+            icon = group.get("icon", "")
+            type_name = self._input_type_from_capture(name, icon)
+            type_counts[type_name] = type_counts.get(type_name, 0) + 1
+            type_index = f"{type_name}-{type_counts[type_name]}"
+            capture_key = group_id.removeprefix("capture-")
+            selected = bool(
+                (active_type_index and type_index == active_type_index)
+                or (active_input_id and capture_key == active_input_id)
+                or (active_name and name.lower() == active_name.lower())
             )
-            for inp in root.findall("input")
-        ]
+            inputs.append(
+                AudioInput(
+                    name=name,
+                    type=type_name,
+                    id=type_index,
+                    selected=selected,
+                )
+            )
+        return inputs
 
     async def set_input(self, ip: str, input_name: str) -> bool:
-        encoded = quote(input_name, safe="")
+        """Select input by display name or inputTypeIndex (fw >= 4.2)."""
+        target = (input_name or "").strip()
+        if not target:
+            return False
+        type_index = target
+        if "-" not in target or not any(ch.isdigit() for ch in target.split("-")[-1]):
+            inputs = await self.get_inputs(ip) or []
+            lowered = target.lower()
+            match = next(
+                (
+                    inp
+                    for inp in inputs
+                    if inp.id.lower() == lowered
+                    or inp.name.lower() == lowered
+                    or inp.type.lower() == lowered
+                ),
+                None,
+            )
+            if match is None:
+                return False
+            type_index = match.id
+        encoded = quote(type_index, safe="-")
         return (
-            await self._get(ip, "/AudioInput", query=f"input={encoded}", control=True)
+            await self._get(ip, "/Play", query=f"inputTypeIndex={encoded}", control=True)
         ) is not None
 
     async def get_bluetooth_mode(self, ip: str) -> str | None:
-        raw = await self._get(ip, "/AudioModes")
+        """Read Bluetooth mode from capture settings (no /AudioModes GET in v1.7)."""
+        raw = await self._get(ip, "/Settings", query="id=capture&schemaVersion=32")
         if not raw:
             return None
         root = safe_parse_xml(raw, self.settings, ip)
         if root is None:
             return None
-        mode = text(root, "bluetoothAutoplay")
-        return {"0": "Manual", "1": "Automatic", "2": "Guest", "3": "Disabled"}.get(mode, "Unknown")
+        for setting in root.iter("setting"):
+            setting_id = setting.get("id") or setting.get("name")
+            if setting_id == "bluetoothAutoplay":
+                mode = setting.get("value", "")
+                return self._BT_MODE_MAP.get(mode, "Unknown")
+        return None
 
     async def set_bluetooth_mode(self, ip: str, mode: int) -> bool:
         if mode not in (0, 1, 2, 3):
