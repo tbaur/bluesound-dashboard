@@ -126,6 +126,7 @@ a {
   display: inline-flex;
   flex-direction: column;
   align-items: flex-end;
+  gap: 4px;
   line-height: 1.15;
 }
 
