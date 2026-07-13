@@ -170,12 +170,15 @@ export function PlayerDetailPage() {
           </div>
         </section>
 
-        <section className="panel">
-          <h2>Queue</h2>
+        <details className="panel panel-collapse">
+          <summary>
+            <h2>Queue</h2>
+            <span className="card-meta">{queue?.count ?? 0}</span>
+          </summary>
           {!queue || queue.count === 0 ? (
             <div className="empty">Queue is empty</div>
           ) : (
-            <ul className="list">
+            <ul className="list list-scroll">
               {queue.items.map((item, index) => (
                 <li key={`${item.title}-${index}`}>
                   <span>
@@ -231,7 +234,7 @@ export function PlayerDetailPage() {
           >
             Clear queue
           </button>
-        </section>
+        </details>
 
         <details className="panel panel-collapse">
           <summary>

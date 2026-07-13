@@ -984,6 +984,13 @@ button.sync-chip-primary {
   gap: 8px;
 }
 
+.list-scroll {
+  max-height: min(22rem, 50vh);
+  overflow-y: auto;
+  padding-right: 4px;
+  overscroll-behavior: contain;
+}
+
 .list li {
   display: flex;
   justify-content: space-between;
