@@ -42,6 +42,13 @@ async def test_get_player_status_parses_sync_and_status(settings: Settings) -> N
         assert player.track == "Song Title"
         assert player.slaves == ["192.168.1.21"]
         assert player.sync_role.value == "primary"
+        assert player.mac == "90:56:82:00:00:01"
+        assert player.device_class == "streamer"
+        assert player.stream_format == "Ogg Vorbis"
+        assert player.image == "http://192.168.1.20:11000/images/album.png"
+        assert player.secs == 30
+        assert player.totlen == 240
+        assert player.can_seek is True
     finally:
         await client.aclose()
 
@@ -225,5 +232,21 @@ async def test_settings_follows_port_redirect(settings: Settings) -> None:
         assert inputs is not None
         assert len(inputs) == 3
         assert await client.get_bluetooth_mode("192.168.1.20") == "Disabled"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_get_uptime_uses_port_80_diagnostics(settings: Settings) -> None:
+    respx.get("http://192.168.1.20/diagnostics").mock(
+        return_value=httpx.Response(
+            200,
+            text="<div>Uptime:</div><div>12h3m</div>",
+        )
+    )
+    client = BluOSClient(settings)
+    try:
+        assert await client.get_uptime("192.168.1.20") == "12h3m"
     finally:
         await client.aclose()

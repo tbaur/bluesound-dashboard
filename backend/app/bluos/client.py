@@ -180,7 +180,10 @@ class BluOSClient:
         return {
             "name": attr(root, "name") or "Unknown",
             "model": attr(root, "modelName") or attr(root, "brand") or "",
+            "model_code": attr(root, "model"),
             "brand": attr(root, "brand"),
+            "device_class": attr(root, "class"),
+            "mac": attr(root, "mac"),
             "db": attr(root, "db"),
             "fw": attr(root, "version"),
             "master": master,
@@ -190,6 +193,23 @@ class BluOSClient:
             "volume": volume,
             "muted": muted,
         }
+
+    def _absolute_media_url(self, ip: str, path: str) -> str:
+        value = (path or "").strip()
+        if not value:
+            return ""
+        if value.startswith(("http://", "https://")):
+            return value
+        if value.startswith("/"):
+            return f"http://{ip}:{self.settings.bluos_port}{value}"
+        return value
+
+    @staticmethod
+    def _parse_int(raw: str, default: int = 0) -> int:
+        try:
+            return int(float(raw))
+        except (TypeError, ValueError):
+            return default
 
     def _parse_status(self, status_xml: bytes, ip: str) -> dict[str, Any]:
         root = safe_parse_xml(status_xml, self.settings, ip)
@@ -207,18 +227,34 @@ class BluOSClient:
         except ValueError:
             volume = 0
         mute_raw = text(root, "mute", "0")
+        image = text(root, "image") or text(root, "currentImage")
+        group_volume_raw = text(root, "groupVolume")
+        group_volume: int | None = None
+        if group_volume_raw:
+            try:
+                group_volume = max(0, min(100, int(group_volume_raw)))
+            except ValueError:
+                group_volume = None
         return {
             "volume": max(0, min(100, volume)),
             "muted": mute_raw in {"1", "true", "True"},
             "state": text(root, "state", "stop") or "stop",
             "service": display_service,
+            "service_id": service,
             "track": text(root, "title1") or text(root, "title"),
             "artist": text(root, "artist") or text(root, "title2"),
             "album": text(root, "album") or text(root, "title3"),
             "quality": text(root, "quality"),
+            "stream_format": text(root, "streamFormat"),
+            "image": self._absolute_media_url(ip, image),
+            "secs": self._parse_int(text(root, "secs")),
+            "totlen": self._parse_int(text(root, "totlen")),
+            "can_seek": text(root, "canSeek") in {"1", "true", "True"},
             "input_type_index": text(root, "inputTypeIndex"),
             "input_id": text(root, "inputId"),
-            "service_id": service,
+            "group_name": text(root, "groupName"),
+            "group_volume": group_volume,
+            "db": text(root, "db"),
         }
 
     async def get_player_status(
@@ -253,6 +289,8 @@ class BluOSClient:
             player.name = sync["name"]
             player.model = sync["model"]
             player.brand = sync["brand"]
+            player.device_class = sync.get("device_class", "")
+            player.mac = sync.get("mac", "")
             player.db = sync["db"]
             player.fw = sync["fw"]
             player.master = sync["master"]
@@ -279,10 +317,23 @@ class BluOSClient:
                 player.muted = status.get("muted", player.muted)
             player.state = status.get("state", "stop")
             player.service = status.get("service", "")
+            player.service_id = status.get("service_id", "")
             player.track = status.get("track", "")
             player.artist = status.get("artist", "")
             player.album = status.get("album", "")
             player.quality = status.get("quality", "")
+            player.stream_format = status.get("stream_format", "")
+            player.image = status.get("image", "")
+            player.secs = status.get("secs", 0)
+            player.totlen = status.get("totlen", 0)
+            player.can_seek = status.get("can_seek", False)
+            player.input_type_index = status.get("input_type_index", "")
+            if status.get("group_name") and not player.group:
+                player.group = status["group_name"]
+            if status.get("group_volume") is not None:
+                player.group_volume = status["group_volume"]
+            if status.get("db"):
+                player.db = status["db"]
 
         if player.brand and player.brand not in player.model:
             player.full_model = f"{player.brand} {player.model}".strip()
@@ -318,10 +369,28 @@ class BluOSClient:
         return await self._post(ip, "/reboot", data={"yes": "1"}, control=True)
 
     async def get_uptime(self, ip: str) -> str | None:
-        html = await self._get_text(ip, "/diagnostics")
-        if not html:
+        """Read uptime from the device web UI (port 80), not BluOS :11000."""
+        sanitized = sanitize_ip(ip)
+        if not sanitized:
+            return None
+        if not self.settings.is_allowed_device_ip(sanitized):
+            logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
+            return None
+        url = f"http://{sanitized}/diagnostics"
+        try:
+            async with self._sem:
+                response = await self._client.get(url)
+            if response.status_code >= 400:
+                return None
+            html = response.text
+        except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
+            logger.debug("diagnostics_failed ip=%s err=%s", sanitized, exc)
             return None
         match = re.search(r"Uptime:</div>\s*<div[^>]*>(.*?)</div>", html, re.IGNORECASE)
+        if match:
+            return match.group(1).strip()
+        # Fallback for alternate diagnostics markup.
+        match = re.search(r"Uptime:\s*</[^>]+>\s*([^<\s]+)", html, re.IGNORECASE)
         if match:
             return match.group(1).strip()
         return None

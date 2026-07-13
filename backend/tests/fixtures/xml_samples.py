@@ -1,7 +1,7 @@
 """XML fixture samples for tests."""
 
 SYNC_STATUS = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<SyncStatus name="Kitchen" modelName="NODE" brand="Bluesound" version="4.10.0" db="-42" volume="22" etag="1">
+<SyncStatus name="Kitchen" modelName="NODE" model="N125" brand="Bluesound" version="4.10.0" db="-42" volume="22" etag="1" class="streamer" mac="90:56:82:00:00:01">
   <slave id="192.168.1.21"/>
   <group>Kitchen + Patio</group>
 </SyncStatus>
@@ -17,6 +17,12 @@ STATUS = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <artist>Artist Name</artist>
   <album>Album Name</album>
   <quality>320000</quality>
+  <streamFormat>Ogg Vorbis</streamFormat>
+  <image>/images/album.png</image>
+  <secs>30</secs>
+  <totlen>240</totlen>
+  <canSeek>1</canSeek>
+  <db>-42.0</db>
 </status>
 """
 

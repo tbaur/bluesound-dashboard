@@ -21,15 +21,19 @@ class PlayerStatus(BaseModel):
     model: str = ""
     brand: str = ""
     full_model: str = ""
+    device_class: str = ""
+    mac: str = ""
     status: str = "offline"
     state: str = "stop"
     service: str = ""
+    service_id: str = ""
     volume: int = 0
     muted: bool = False
     db: str = ""
     fw: str = ""
     master: str = ""
     group: str = ""
+    group_volume: int | None = None
     slaves: list[str] = Field(default_factory=list)
     sync_role: SyncRole = SyncRole.STANDALONE
     battery: str | None = None
@@ -37,6 +41,12 @@ class PlayerStatus(BaseModel):
     artist: str = ""
     album: str = ""
     quality: str = ""
+    stream_format: str = ""
+    image: str = ""
+    secs: int = 0
+    totlen: int = 0
+    can_seek: bool = False
+    input_type_index: str = ""
     consecutive_failures: int = 0
     last_seen: float | None = None
 
@@ -63,12 +73,19 @@ class DiagnoseResponse(BaseModel):
     name: str
     model: str = ""
     full_model: str = ""
+    device_class: str = ""
+    mac: str = ""
     fw: str = ""
     state: str = ""
     service: str = ""
     volume: int = 0
     muted: bool = False
+    db: str = ""
     sync_role: SyncRole = SyncRole.STANDALONE
+    master: str = ""
+    group: str = ""
+    quality: str = ""
+    stream_format: str = ""
     uptime: str | None = None
 
 

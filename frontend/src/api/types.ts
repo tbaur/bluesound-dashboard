@@ -7,15 +7,19 @@ export interface PlayerStatus {
   model: string;
   brand: string;
   full_model: string;
+  device_class: string;
+  mac: string;
   status: string;
   state: string;
   service: string;
+  service_id: string;
   volume: number;
   muted: boolean;
   db: string;
   fw: string;
   master: string;
   group: string;
+  group_volume: number | null;
   slaves: string[];
   sync_role: SyncRole;
   battery: string | null;
@@ -23,6 +27,12 @@ export interface PlayerStatus {
   artist: string;
   album: string;
   quality: string;
+  stream_format: string;
+  image: string;
+  secs: number;
+  totlen: number;
+  can_seek: boolean;
+  input_type_index: string;
   consecutive_failures: number;
   last_seen: number | null;
 }
@@ -71,6 +81,28 @@ export interface SyncGroup {
 export interface SyncState {
   groups: SyncGroup[];
   standalone_ids: string[];
+}
+
+export interface DiagnoseResponse {
+  device_id: string;
+  ip: string;
+  name: string;
+  model: string;
+  full_model: string;
+  device_class: string;
+  mac: string;
+  fw: string;
+  state: string;
+  service: string;
+  volume: number;
+  muted: boolean;
+  db: string;
+  sync_role: SyncRole;
+  master: string;
+  group: string;
+  quality: string;
+  stream_format: string;
+  uptime: string | null;
 }
 
 export interface ApiErrorBody {
