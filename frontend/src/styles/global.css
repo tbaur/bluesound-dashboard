@@ -948,7 +948,8 @@ button.sync-chip-primary {
 }
 
 .list li[data-selected="true"] {
-  border-color: rgba(61, 156, 240, 0.45);
+  border-color: rgba(61, 156, 240, 0.55);
+  background: rgba(61, 156, 240, 0.12);
 }
 
 .queue-move {

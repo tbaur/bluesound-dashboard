@@ -235,23 +235,16 @@ export function PlayerDetailPage() {
 
         <section className="panel">
           <h2>Inputs</h2>
-          <p className="card-meta">
-            {inputs.some((i) => i.selected)
-              ? `Active: ${inputs.find((i) => i.selected)?.name}`
-              : device.service
-                ? `Source: ${device.service} (no physical input selected)`
-                : 'No physical input selected'}
-          </p>
           <ul className="list">
             {inputs.map((input) => (
-              <li key={input.id || input.name} data-selected={input.selected}>
+              <li key={input.id || input.name} data-selected={String(input.selected)}>
                 <span>
                   {input.name}
                   <div className="card-meta">{input.id || input.type}</div>
                 </span>
                 <button
                   type="button"
-                  className="btn"
+                  className={input.selected ? 'btn btn-primary' : 'btn'}
                   disabled={input.selected}
                   onClick={() =>
                     void control(device.id, async () => {
@@ -260,7 +253,7 @@ export function PlayerDetailPage() {
                     })
                   }
                 >
-                  {input.selected ? 'Active' : 'Select'}
+                  {input.selected ? 'In use' : 'Select'}
                 </button>
               </li>
             ))}
