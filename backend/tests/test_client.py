@@ -257,6 +257,84 @@ async def test_settings_blocks_cross_host_redirect(settings: Settings) -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_redirect_target_edge_cases(settings: Settings) -> None:
+    client = BluOSClient(settings)
+    try:
+        assert (
+            client._redirect_target_allowed(
+                "192.168.1.20",
+                "http://192.168.1.20:11000/Settings",
+                "ftp://192.168.1.20/x",
+            )
+            is None
+        )
+        blocked = BluOSClient(Settings(allow_non_private_ips=False, device_http_timeout=1.0))
+        try:
+            assert (
+                blocked._redirect_target_allowed(
+                    "8.8.8.8",
+                    "http://8.8.8.8:11000/Settings",
+                    "http://8.8.8.8:11001/Settings",
+                )
+                is None
+            )
+        finally:
+            await blocked.aclose()
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redirect_without_location_returns_response(settings: Settings) -> None:
+    respx.get("http://192.168.1.20:11000/Settings").mock(
+        return_value=httpx.Response(302, content=b"")
+    )
+    client = BluOSClient(settings)
+    try:
+        assert await client.get_inputs("192.168.1.20") is None
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_redirect_limit_exceeded(settings: Settings) -> None:
+    def bounce(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            307,
+            headers={"Location": str(request.url)},
+        )
+
+    respx.get(url__regex=r"http://192\.168\.1\.20:1100[01]/Settings.*").mock(side_effect=bounce)
+    client = BluOSClient(settings)
+    try:
+        assert await client.get_inputs("192.168.1.20") is None
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_post_303_switches_to_get(settings: Settings) -> None:
+    respx.post("http://192.168.1.20/reboot").mock(
+        return_value=httpx.Response(
+            303,
+            headers={"Location": "http://192.168.1.20:8080/done"},
+        )
+    )
+    respx.get("http://192.168.1.20:8080/done").mock(
+        return_value=httpx.Response(200, content=b"ok")
+    )
+    client = BluOSClient(settings)
+    try:
+        assert await client.reboot("192.168.1.20", soft=False) is True
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
     pause = respx.get("http://192.168.1.20:11000/Pause").mock(
         return_value=httpx.Response(200, content=b"<ok/>")

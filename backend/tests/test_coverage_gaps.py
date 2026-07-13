@@ -364,3 +364,60 @@ def test_validators_edge_cases() -> None:
     assert parse_bluos_host("") == ""
     # Invalid node_id characters fall back to hash id
     assert make_device_id("192.168.1.1", node_id="!!!").startswith("player-")
+
+
+@pytest.mark.asyncio
+async def test_fleet_upgrades_cache_and_empty(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from app.models import UpgradeStatus
+
+    app, client, discovery, _ = await app_with_players(settings, monkeypatch)
+    client.get_upgrade_status = AsyncMock(  # type: ignore[method-assign]
+        return_value=UpgradeStatus(
+            device_id="player-kitchen",
+            name="Kitchen",
+            ip="192.168.1.20",
+            current_fw="4.16.6",
+            update_available=False,
+            message="ok",
+            ok=True,
+        )
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        first = await http.get("/api/v1/fleet/upgrades")
+        second = await http.get("/api/v1/fleet/upgrades")
+        assert first.status_code == 200
+        assert second.status_code == 200
+        assert client.get_upgrade_status.await_count == 1
+
+        discovery._snapshot.devices = []
+        discovery._snapshot.ips_by_id = {}
+        discovery._snapshot.ids_by_ip = {}
+        app.state.app_state.fleet_upgrades_cache = None
+        app.state.app_state.fleet_upgrades_cached_at = 0.0
+        empty = await http.get("/api/v1/fleet/upgrades")
+        assert empty.status_code == 200
+        assert empty.json()["checked"] == 0
+    await client.aclose()
+
+
+def test_event_bus_subscriber_count() -> None:
+    from app.services.events import EventBus
+
+    bus = EventBus()
+    assert bus.subscriber_count == 0
+
+
+@pytest.mark.asyncio
+async def test_event_bus_subscriber_count_live() -> None:
+    from app.services.events import EventBus
+
+    bus = EventBus()
+    q = await bus.subscribe()
+    assert bus.subscriber_count == 1
+    await bus.unsubscribe(q)
+    assert bus.subscriber_count == 0

@@ -48,6 +48,9 @@ async def test_lifespan_starts_and_stops(
         async with AsyncClient(transport=transport, base_url="http://test") as http:
             health = await http.get("/api/v1/healthz")
             assert health.status_code == 200
+            alias = await http.get("/health", follow_redirects=False)
+            assert alias.status_code == 307
+            assert alias.headers["location"] == "/api/v1/healthz"
             spa = await http.get("/players/kitchen")
             assert spa.status_code == 200
             assert "ok" in spa.text
