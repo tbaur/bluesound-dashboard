@@ -242,7 +242,7 @@ export function PlayerDetailPage() {
           )}
         </dl>
         <div className="dossier-volume">
-          <h3>Set volume</h3>
+          <h3>Device volume</h3>
           <div className="volume-row">
             <input
               type="range"
