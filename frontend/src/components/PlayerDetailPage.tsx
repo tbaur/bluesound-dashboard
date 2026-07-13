@@ -226,8 +226,6 @@ export function PlayerDetailPage() {
               {device.sync_role === 'primary' && device.slaves.length > 0
                 ? ` · ${device.slaves.length} follower${device.slaves.length === 1 ? '' : 's'}`
                 : ''}
-              {' · '}
-              <Link to="/">manage on fleet</Link>
             </dd>
           </div>
           {device.battery != null && device.battery !== '' && (
