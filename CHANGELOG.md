@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.4.1](https://github.com/tbaur/bluesound-dashboard/compare/v0.4.0...v0.4.1) (2026-07-13)
+
+
+### Bug Fixes
+
+* **ui:** collapse House firmware/rooms into a single Devices list ([#24](https://github.com/tbaur/bluesound-dashboard/issues/24)) ([97d7a21](https://github.com/tbaur/bluesound-dashboard/commit/97d7a21ab9c0157bb55ad9994d5814d8e28ca3eb))
+
 ## [0.4.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.3.0...v0.4.0) (2026-07-13)
 
 
