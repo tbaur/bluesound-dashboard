@@ -5,6 +5,7 @@ import {
   fleetHouseStatusLine,
 } from '@/lib/fleetStatus';
 import { useFleetStore } from '@/store/fleetStore';
+import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
 
 function medianVolume(volumes: number[]): number {
   if (volumes.length === 0) return 0;
@@ -101,6 +102,11 @@ function GlobalVolumePanel() {
         </span>
       </div>
       <div className="volume-row global-volume-row">
+        <VolumeNudgeButtons
+          value={draft}
+          disabled={pending}
+          onChange={(level) => onInput(level)}
+        />
         <label htmlFor="global-vol">Vol</label>
         <input
           id="global-vol"

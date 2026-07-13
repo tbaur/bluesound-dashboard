@@ -634,6 +634,20 @@ button.volume-linked-pill-action:disabled {
   gap: 10px;
 }
 
+.volume-nudge {
+  display: inline-flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.volume-nudge-btn {
+  min-width: 2.4rem;
+  font-size: 1.05rem;
+  line-height: 1;
+  user-select: none;
+  touch-action: none;
+}
+
 .volume-row input[type="range"] {
   flex: 1;
   accent-color: var(--accent);

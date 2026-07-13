@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api } from '@/api/client';
 import type { AudioInput, Preset, QueueResponse } from '@/api/types';
+import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
 import { useFleetStore } from '@/store/fleetStore';
 import { useLiveFleet } from '@/hooks/useLiveFleet';
 
@@ -46,6 +47,8 @@ export function PlayerDetailPage() {
   const devices = useFleetStore((s) => s.devices);
   const control = useFleetStore((s) => s.control);
   const toggleMute = useFleetStore((s) => s.toggleMute);
+  const patchDevice = useFleetStore((s) => s.patchDevice);
+  const volumeCommitTimer = useRef<number | undefined>(undefined);
 
   const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [inputs, setInputs] = useState<AudioInput[]>([]);
@@ -100,6 +103,25 @@ export function PlayerDetailPage() {
     }, 1000);
     return () => window.clearInterval(timer);
   }, [device?.id, device?.state, device?.totlen]);
+
+  useEffect(
+    () => () => {
+      if (volumeCommitTimer.current) window.clearTimeout(volumeCommitTimer.current);
+    },
+    [],
+  );
+
+  const commitDeviceVolume = (level: number) => {
+    if (!device) return;
+    const deviceId = device.id;
+    useFleetStore.getState().holdVolume(deviceId);
+    patchDevice(deviceId, { volume: level });
+    if (volumeCommitTimer.current) window.clearTimeout(volumeCommitTimer.current);
+    volumeCommitTimer.current = window.setTimeout(() => {
+      volumeCommitTimer.current = undefined;
+      void control(deviceId, () => api.setVolume(deviceId, level), { volume: level });
+    }, 80);
+  };
 
   if (!device) {
     return (
@@ -273,17 +295,15 @@ export function PlayerDetailPage() {
         <div className="dossier-volume">
           <h3>Device volume</h3>
           <div className="volume-row">
+            <VolumeNudgeButtons value={device.volume} onChange={commitDeviceVolume} />
             <input
               type="range"
               min={0}
               max={100}
               value={device.volume}
-              aria-label="Set volume"
+              aria-label="Device volume"
               onPointerDown={() => useFleetStore.getState().holdVolume(device.id)}
-              onChange={(e) => {
-                const level = Number(e.target.value);
-                void control(device.id, () => api.setVolume(device.id, level), { volume: level });
-              }}
+              onChange={(e) => commitDeviceVolume(Number(e.target.value))}
             />
             <span className="volume-value">{device.volume}</span>
             <button type="button" className="btn" onClick={() => void toggleMute(device.id)}>
