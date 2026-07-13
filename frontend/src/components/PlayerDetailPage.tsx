@@ -22,6 +22,23 @@ function qualityLabel(quality: string, streamFormat: string): string {
   return parts.join(' · ');
 }
 
+function syncSummary(
+  device: { sync_role: string; group: string; slaves: string[] },
+  primaryName: string | null,
+): string {
+  if (device.sync_role === 'primary') {
+    if (device.group) return `Leading ${device.group}`;
+    const n = device.slaves.length;
+    return n > 0 ? `Leading ${n} follower${n === 1 ? '' : 's'}` : 'Leading group';
+  }
+  if (device.sync_role === 'synced') {
+    if (primaryName) return `Following ${primaryName}`;
+    if (device.group) return `In ${device.group}`;
+    return 'Following group';
+  }
+  return 'Standalone';
+}
+
 export function PlayerDetailPage() {
   useLiveFleet();
   const { id = '' } = useParams();
@@ -219,14 +236,7 @@ export function PlayerDetailPage() {
           </div>
           <div>
             <dt>Sync</dt>
-            <dd>
-              {device.sync_role}
-              {device.group ? ` · ${device.group}` : ''}
-              {device.sync_role === 'synced' && primary ? ` · follows ${primary.name}` : ''}
-              {device.sync_role === 'primary' && device.slaves.length > 0
-                ? ` · ${device.slaves.length} follower${device.slaves.length === 1 ? '' : 's'}`
-                : ''}
-            </dd>
+            <dd>{syncSummary(device, primary?.name ?? null)}</dd>
           </div>
           {device.battery != null && device.battery !== '' && (
             <div>
