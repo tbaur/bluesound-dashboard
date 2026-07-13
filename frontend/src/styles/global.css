@@ -931,7 +931,7 @@ button.sync-chip-primary {
 
 .panel-collapse > summary {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
   cursor: pointer;
@@ -943,18 +943,33 @@ button.sync-chip-primary {
 }
 
 .panel-collapse > summary::after {
-  content: '▸';
-  color: var(--muted);
-  font-size: 0.85rem;
-  transition: transform 0.15s ease;
+  content: '';
+  width: 0.55rem;
+  height: 0.55rem;
+  margin-left: auto;
+  border-right: 2.5px solid var(--text);
+  border-bottom: 2.5px solid var(--text);
+  opacity: 0.85;
+  transform: rotate(-45deg);
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  flex-shrink: 0;
+}
+
+.panel-collapse > summary:hover::after {
+  opacity: 1;
 }
 
 .panel-collapse[open] > summary::after {
-  transform: rotate(90deg);
+  transform: rotate(45deg);
+  opacity: 1;
 }
 
 .panel-collapse > summary h2 {
   margin: 0;
+}
+
+.panel-collapse > summary .card-meta {
+  margin-right: 10px;
 }
 
 .panel-collapse > summary + * {
