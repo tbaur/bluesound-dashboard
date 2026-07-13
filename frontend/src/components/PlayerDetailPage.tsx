@@ -116,6 +116,18 @@ export function PlayerDetailPage() {
     ? devices.find((d) => d.ip === device.master)
     : null;
   const playing = ['play', 'stream', 'connecting'].includes(device.state);
+  const isIdle =
+    !device.track.trim() &&
+    (device.state === 'stop' || device.state === '' || device.state === 'pause');
+  const nowTitle = device.track.trim()
+    ? device.track
+    : device.state === 'pause'
+      ? 'Paused'
+      : isIdle
+        ? 'Idle'
+        : playing
+          ? 'Playing'
+          : device.state || 'Idle';
   const progressPct =
     device.totlen > 0 ? Math.min(100, (progressSecs / device.totlen) * 100) : 0;
   const activeInput = inputs.find((input) => input.selected);
@@ -159,13 +171,20 @@ export function PlayerDetailPage() {
             )}
           </div>
           <div className="dossier-now-copy">
-            <p className="card-meta">Now playing</p>
-            <h2>{device.track || 'Nothing playing'}</h2>
-            <p className="dossier-now-meta">
-              {[device.artist, device.album].filter(Boolean).join(' · ') || '—'}
-            </p>
+            <p className="card-meta">{isIdle ? 'Status' : 'Now playing'}</p>
+            <h2>{nowTitle}</h2>
+            {!isIdle && (
+              <p className="dossier-now-meta">
+                {[device.artist, device.album].filter(Boolean).join(' · ') || '—'}
+              </p>
+            )}
             <p className="card-meta">
-              {[device.service || null, activeInput ? `Input ${activeInput.name}` : null, metaLine || null, device.state]
+              {[
+                device.service || null,
+                activeInput ? `Input ${activeInput.name}` : null,
+                !isIdle ? metaLine || null : null,
+                !isIdle ? device.state : null,
+              ]
                 .filter(Boolean)
                 .join(' · ')}
             </p>
