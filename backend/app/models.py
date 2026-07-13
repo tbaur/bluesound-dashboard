@@ -87,6 +87,108 @@ class DiagnoseResponse(BaseModel):
     quality: str = ""
     stream_format: str = ""
     uptime: str | None = None
+    network_name: str | None = None
+    signal_strength: str | None = None
+    total_songs: str | None = None
+    web_ip: str | None = None
+    web_mac: str | None = None
+    web_fw: str | None = None
+
+
+class SettingOption(BaseModel):
+    name: str
+    display_name: str = ""
+
+
+class DeviceSetting(BaseModel):
+    id: str
+    name: str = ""
+    display_name: str = ""
+    kind: str = ""
+    value: str = ""
+    description: str = ""
+    explanation: str = ""
+    disabled: bool = False
+    control_path: str = ""
+    min_value: float | None = None
+    max_value: float | None = None
+    step: float | None = None
+    units: str = ""
+    options: list[SettingOption] = Field(default_factory=list)
+    depends_on: str = ""
+    depends_value: str = ""
+
+
+class DeviceSettingsResponse(BaseModel):
+    page_id: str
+    settings: list[DeviceSetting]
+
+
+class SettingWriteRequest(BaseModel):
+    id: str = Field(min_length=1, max_length=64)
+    value: str = Field(default="", max_length=512)
+    control_path: str = Field(default="", max_length=128)
+
+    @field_validator("id")
+    @classmethod
+    def validate_setting_id(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned or any(ch in cleaned for ch in ("\x00", "\n", "\r", "/", "?", "&", "=")):
+            raise ValueError("invalid setting id")
+        if not all(ch.isalnum() or ch in "-_" for ch in cleaned):
+            raise ValueError("invalid setting id")
+        return cleaned
+
+    @field_validator("value")
+    @classmethod
+    def validate_setting_value(cls, value: str) -> str:
+        if any(ch in value for ch in ("\x00", "\n", "\r")):
+            raise ValueError("invalid setting value")
+        return value
+
+    @field_validator("control_path")
+    @classmethod
+    def validate_control_path(cls, value: str) -> str:
+        cleaned = value.strip()
+        if not cleaned:
+            return ""
+        if not cleaned.startswith("/") or "://" in cleaned or "?" in cleaned or ".." in cleaned:
+            raise ValueError("invalid control path")
+        if not all(ch.isalnum() or ch in "/_-" for ch in cleaned):
+            raise ValueError("invalid control path")
+        return cleaned
+
+
+class UpgradeStatus(BaseModel):
+    device_id: str
+    name: str
+    ip: str
+    current_fw: str = ""
+    update_available: bool = False
+    message: str = ""
+    ok: bool = True
+
+
+class FleetUpgradeResponse(BaseModel):
+    updates_available: int
+    checked: int
+    failed: int
+    results: list[UpgradeStatus]
+
+
+class FirmwareEntry(BaseModel):
+    device_id: str
+    name: str
+    ip: str
+    model: str = ""
+    fw: str = ""
+    status: str = ""
+
+
+class FleetFirmwareResponse(BaseModel):
+    unique_versions: list[str]
+    skew: bool
+    devices: list[FirmwareEntry]
 
 
 class FleetVolumeResult(BaseModel):

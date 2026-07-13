@@ -81,7 +81,17 @@ async def test_control_failure_returns_502(
 @pytest.mark.asyncio
 async def test_get_device_and_diagnose(settings: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
     app, client, _, _ = await app_with_players(settings, monkeypatch)
-    client.get_uptime = AsyncMock(return_value="1h2m")  # type: ignore[method-assign]
+    client.get_diagnostics = AsyncMock(  # type: ignore[method-assign]
+        return_value={
+            "uptime": "1h2m",
+            "network_name": "home",
+            "signal_strength": "-70 dBm",
+            "total_songs": "0",
+            "web_ip": "192.168.1.20",
+            "web_mac": "aa:bb:cc",
+            "web_fw": "4.16.6",
+        }
+    )
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
@@ -91,7 +101,10 @@ async def test_get_device_and_diagnose(settings: Settings, monkeypatch: pytest.M
 
         diag = await http.get("/api/v1/devices/player-kitchen/diagnose")
         assert diag.status_code == 200
-        assert diag.json()["uptime"] == "1h2m"
+        body = diag.json()
+        assert body["uptime"] == "1h2m"
+        assert body["signal_strength"] == "-70 dBm"
+        assert body["network_name"] == "home"
     await client.aclose()
 
 
@@ -205,6 +218,7 @@ async def test_fleet_mute_pause_stop(settings: Settings, monkeypatch: pytest.Mon
     client.set_mute = AsyncMock(return_value=True)  # type: ignore[method-assign]
     client.pause = AsyncMock(return_value=True)  # type: ignore[method-assign]
     client.stop = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.reboot = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
@@ -219,6 +233,16 @@ async def test_fleet_mute_pause_stop(settings: Settings, monkeypatch: pytest.Mon
         stop = await http.post("/api/v1/fleet/stop")
         assert stop.status_code == 200
         assert stop.json()["action"] == "stop"
+
+        soft = await http.post("/api/v1/fleet/reboot", json={"soft": True})
+        assert soft.status_code == 200
+        assert soft.json()["action"] == "soft_reboot"
+        assert soft.json()["succeeded"] == 2
+        assert client.reboot.await_count == 2
+
+        hard = await http.post("/api/v1/fleet/reboot", json={"soft": False})
+        assert hard.status_code == 200
+        assert hard.json()["action"] == "reboot"
     await client.aclose()
 
 
@@ -275,4 +299,107 @@ async def test_sync_add_rejects_same_device(
         )
         assert response.status_code == 400
         assert response.json()["code"] == "invalid_sync_pair"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_settings_upgrade_and_fleet_firmware(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from app.models import DeviceSetting, DeviceSettingsResponse, UpgradeStatus
+
+    app, client, _, _ = await app_with_players(settings, monkeypatch)
+    client.get_device_settings = AsyncMock(  # type: ignore[method-assign]
+        return_value=DeviceSettingsResponse(
+            page_id="audio",
+            settings=[
+                DeviceSetting(
+                    id="eq-switch",
+                    display_name="Tone Controls",
+                    kind="boolean",
+                    value="ON",
+                )
+            ],
+        )
+    )
+    client.set_device_setting = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.get_upgrade_status = AsyncMock(  # type: ignore[method-assign]
+        return_value=UpgradeStatus(
+            device_id="player-kitchen",
+            name="Kitchen",
+            ip="192.168.1.20",
+            current_fw="4.16.6",
+            update_available=False,
+            message="No update available.",
+            ok=True,
+        )
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        settings_resp = await http.get("/api/v1/devices/player-kitchen/settings/audio")
+        assert settings_resp.status_code == 200
+        assert settings_resp.json()["settings"][0]["id"] == "eq-switch"
+
+        write = await http.post(
+            "/api/v1/devices/player-kitchen/settings",
+            json={"id": "channelMode", "value": "left", "control_path": "/audiomodes"},
+        )
+        assert write.status_code == 204
+        client.set_device_setting.assert_awaited_once()
+        assert client.set_device_setting.await_args.kwargs.get("control_path") == "/audiomodes"
+
+        upgrade = await http.get("/api/v1/devices/player-kitchen/upgrade")
+        assert upgrade.status_code == 200
+        assert upgrade.json()["update_available"] is False
+
+        firmware = await http.get("/api/v1/fleet/firmware")
+        assert firmware.status_code == 200
+        assert firmware.json()["devices"][0]["device_id"] == "player-kitchen"
+
+        fleet_upgrades = await http.get("/api/v1/fleet/upgrades")
+        assert fleet_upgrades.status_code == 200
+        assert fleet_upgrades.json()["checked"] == 1
+
+        client.get_device_settings = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        missing = await http.get("/api/v1/devices/player-kitchen/settings/player")
+        assert missing.status_code == 502
+
+        client.set_device_setting = AsyncMock(return_value=False)  # type: ignore[method-assign]
+        failed = await http.post(
+            "/api/v1/devices/player-kitchen/settings",
+            json={"id": "channelMode", "value": "left"},
+        )
+        assert failed.status_code == 502
+        assert client.set_device_setting.await_args.kwargs.get("control_path") == ""
+
+        bad_path = await http.post(
+            "/api/v1/devices/player-kitchen/settings",
+            json={"id": "channelMode", "value": "left", "control_path": "audiomodes"},
+        )
+        assert bad_path.status_code == 422
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_settings_write_forwards_empty_control_path(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """SPA may omit control_path; backend resolves via Settings XML."""
+    app, client, _, _ = await app_with_players(settings, monkeypatch)
+    client.set_device_setting = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        write = await http.post(
+            "/api/v1/devices/player-kitchen/settings",
+            json={"id": "fixedVolume", "value": "ON"},
+        )
+        assert write.status_code == 204
+        client.set_device_setting.assert_awaited_once_with(
+            "192.168.1.20",
+            "fixedVolume",
+            "ON",
+            control_path="",
+        )
     await client.aclose()

@@ -4,7 +4,7 @@ All settings are environment variables with the `BSD_` prefix. Copy [.env.exampl
 
 Defaults are tuned for local development: bind localhost, discover via mDNS+LSDP, poll every few seconds, and throttle both outbound BluOS calls and inbound mutating API requests.
 
-BluOS control paths follow Custom Integration API **v1.7** (queue via `/Playlist`, capture inputs via `/Settings?id=capture`, Bluetooth via `/audiomodes`). Device uptime is read from the player web UI on port 80 (`/diagnostics`), not BluOS `:11000`.
+BluOS control paths follow Custom Integration API **v1.7** (queue via `/Playlist`, capture inputs via `/Settings?id=capture`, Bluetooth via `/audiomodes`, audio/player settings via `/Settings?id=audio|player`). Device diagnostics and upgrade checks use the player web UI on port 80 (`/diagnostics`, `/upgrade`). Setting writes use the reverse-engineered web UI `POST /settings` form (same path as the native control panel).
 
 ## Network exposure
 
@@ -40,6 +40,7 @@ The backend only talks to discovered private IPs (see `BSD_ALLOW_NON_PRIVATE_IPS
 | `BSD_ALLOW_NON_PRIVATE_IPS` | `false` | Escape hatch — allow non-private device IPs (unsafe) |
 | `BSD_MDNS_SERVICE` | `_musc._tcp.local.` | mDNS service type |
 | `BSD_BLUOS_PORT` | `11000` | BluOS HTTP port |
+| `BSD_WEB_UI_PORT` | `80` | Device web UI port (diagnostics, upgrade, setting writes) |
 
 ## Polling and device HTTP
 

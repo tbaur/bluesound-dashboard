@@ -103,6 +103,73 @@ export interface DiagnoseResponse {
   quality: string;
   stream_format: string;
   uptime: string | null;
+  network_name: string | null;
+  signal_strength: string | null;
+  total_songs: string | null;
+  web_ip: string | null;
+  web_mac: string | null;
+  web_fw: string | null;
+}
+
+export interface SettingOption {
+  name: string;
+  display_name: string;
+}
+
+export interface DeviceSetting {
+  id: string;
+  name: string;
+  display_name: string;
+  kind: string;
+  value: string;
+  description: string;
+  explanation: string;
+  disabled: boolean;
+  control_path: string;
+  min_value: number | null;
+  max_value: number | null;
+  step: number | null;
+  units: string;
+  options: SettingOption[];
+  depends_on: string;
+  depends_value: string;
+}
+
+export interface DeviceSettingsResponse {
+  page_id: string;
+  settings: DeviceSetting[];
+}
+
+export interface UpgradeStatus {
+  device_id: string;
+  name: string;
+  ip: string;
+  current_fw: string;
+  update_available: boolean;
+  message: string;
+  ok: boolean;
+}
+
+export interface FleetUpgradeResponse {
+  updates_available: number;
+  checked: number;
+  failed: number;
+  results: UpgradeStatus[];
+}
+
+export interface FirmwareEntry {
+  device_id: string;
+  name: string;
+  ip: string;
+  model: string;
+  fw: string;
+  status: string;
+}
+
+export interface FleetFirmwareResponse {
+  unique_versions: string[];
+  skew: boolean;
+  devices: FirmwareEntry[];
 }
 
 export interface ApiErrorBody {

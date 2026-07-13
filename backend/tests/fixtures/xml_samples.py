@@ -97,3 +97,40 @@ STATUS_CAPTURE_OPTICAL = b"""<?xml version="1.0" encoding="UTF-8"?>
   <mute>0</mute>
 </status>
 """
+
+AUDIO_SETTINGS = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<settings pageId="audio" schemaVersion="28">
+  <menuGroup id="audio" displayName="Audio" url="/audiomodes">
+    <setting id="eq-switch" name="eq-switch" displayName="Tone Controls" url="/alsa_setting" class="boolean" value="ON"></setting>
+    <setting id="eq-treble" name="eq-treble" displayName="Treble" url="/alsa_setting" class="range" value="4">
+      <value min="-6" max="6" step="0.5" units="dB"></value>
+      <dependsOn name="eq-switch" value="ON"></dependsOn>
+    </setting>
+    <setting id="replayGainMode" name="replayGainMode" displayName="Replay-gain" url="/audiomodes" class="list" value="none">
+      <value displayName="Disabled" name="none"></value>
+      <value displayName="Track gain" name="track"></value>
+    </setting>
+    <setting id="volumeLimits" name="volumeLimits" displayName="Volume limits (dB)" class="dual-range" value="-90,-20">
+      <value min="-90" max="0" minRange="30" units="dB"></value>
+    </setting>
+    <setting id="reset" name="reset" displayName="Reset All" url="/alsa_setting" class="button"></setting>
+  </menuGroup>
+</settings>
+"""
+
+PLAYER_SETTINGS = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<settings pageId="player" schemaVersion="28">
+  <menuGroup id="player" displayName="Player">
+    <setting id="wifi" name="wifi" displayName="WiFi">
+      <webview url="http://192.168.1.20:80/wificfg?noheader=1"></webview>
+    </setting>
+    <setting id="nodename" name="nodename" displayName="Room name" url="/Name" class="text" value="Kitchen" disable="true" explanation="Locked by Apple Home"></setting>
+    <setting id="ledbrightness" name="ledbrightness" displayName="Indicator brightness" url="/setting" class="list" value="default">
+      <value displayName="Normal" name="default"></value>
+      <value displayName="Dim" name="dim"></value>
+      <value displayName="Off" name="off"></value>
+    </setting>
+    <setting id="amplifierStandby" name="amplifierStandby" displayName="Amplifier Standby" url="/setting" class="boolean" value="ON"></setting>
+  </menuGroup>
+</settings>
+"""
