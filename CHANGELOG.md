@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.5.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.4.2...v0.5.0) (2026-07-18)
+
+
+### Features
+
+* add API home page and unblock Swagger docs ([#28](https://github.com/tbaur/bluesound-dashboard/issues/28)) ([af58778](https://github.com/tbaur/bluesound-dashboard/commit/af5877874054a9c965c15f2686cb895f0724b5bf))
+
 ## [0.4.2](https://github.com/tbaur/bluesound-dashboard/compare/v0.4.1...v0.4.2) (2026-07-13)
 
 
