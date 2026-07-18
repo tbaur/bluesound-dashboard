@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from app.config import Settings, get_settings
 from app.discovery.service import DiscoveryService, DiscoverySnapshot
 from app.main import create_app
+from app.middleware import _DEFAULT_CSP, _SWAGGER_CSP
 
 
 @pytest.fixture
@@ -61,12 +62,8 @@ async def test_lifespan_starts_and_stops(
             assert asset.status_code == 200
             docs = await http.get("/api/docs")
             assert docs.status_code == 200
-            docs_csp = docs.headers["content-security-policy"]
-            assert "cdn.jsdelivr.net" in docs_csp
-            assert "'unsafe-inline'" in docs_csp
-            api_csp = health.headers["content-security-policy"]
-            assert "cdn.jsdelivr.net" not in api_csp
-            assert "script-src 'self'" in api_csp
+            assert docs.headers["content-security-policy"] == _SWAGGER_CSP
+            assert health.headers["content-security-policy"] == _DEFAULT_CSP
 
 
 @pytest.mark.asyncio
