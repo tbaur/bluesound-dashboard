@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from app.config import Settings, get_settings
 from app.discovery.service import DiscoveryService, DiscoverySnapshot
 from app.main import create_app
+from app.middleware import _DEFAULT_CSP, _SWAGGER_CSP
 
 
 @pytest.fixture
@@ -59,6 +60,10 @@ async def test_lifespan_starts_and_stops(
             assert api_miss.json()["error"] == "not_found"
             asset = await http.get("/assets/app.js")
             assert asset.status_code == 200
+            docs = await http.get("/api/docs")
+            assert docs.status_code == 200
+            assert docs.headers["content-security-policy"] == _SWAGGER_CSP
+            assert health.headers["content-security-policy"] == _DEFAULT_CSP
 
 
 @pytest.mark.asyncio
@@ -133,12 +138,18 @@ async def test_exception_handlers(
 
 
 @pytest.mark.asyncio
-async def test_spa_without_index_returns_ui_not_built(
+async def test_root_serves_api_home_when_spa_missing(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     get_settings.cache_clear()
-    settings = Settings(static_dir=str(tmp_path), poll_interval=60, discovery_cache_ttl=0)
+    settings = Settings(
+        static_dir=str(tmp_path),
+        poll_interval=60,
+        discovery_cache_ttl=0,
+        enable_openapi=True,
+        cors_origins="http://127.0.0.1:8765",
+    )
     monkeypatch.setattr("app.main.get_settings", lambda: settings)
     monkeypatch.setattr(
         DiscoveryService,
@@ -149,6 +160,36 @@ async def test_spa_without_index_returns_ui_not_built(
     async with app.router.lifespan_context(app):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as http:
+            home = await http.get("/")
+            assert home.status_code == 200
+            assert "text/html" in home.headers["content-type"]
+            assert 'class="brand"' in home.text
+            assert "Bluesound" in home.text
+            assert "--font-display" in home.text
+            assert "http://127.0.0.1:8765/" in home.text
+            assert "/api/docs" in home.text
+
+            # Deep links still report that the SPA was not built.
+            deep = await http.get("/players/kitchen")
+            assert deep.status_code == 404
+            assert deep.json()["error"] == "ui_not_built"
+
+
+@pytest.mark.asyncio
+async def test_root_serves_spa_index_when_built(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        DiscoveryService,
+        "refresh",
+        AsyncMock(return_value=DiscoverySnapshot()),
+    )
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    app = create_app()
+    async with app.router.lifespan_context(app):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as http:
             response = await http.get("/")
-            assert response.status_code == 404
-            assert response.json()["error"] == "ui_not_built"
+            assert response.status_code == 200
+            assert "ok" in response.text

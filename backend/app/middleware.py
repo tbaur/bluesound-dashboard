@@ -17,18 +17,27 @@ logger = logging.getLogger(__name__)
 
 # Album art is served from BluOS players on the LAN (http://<device>:11000/...).
 # CSP cannot express RFC1918 CIDRs, so http: is required for single-process deploys.
+_DEFAULT_CSP = (
+    "default-src 'self'; "
+    "connect-src 'self'; "
+    "img-src 'self' data: http:; "
+    "style-src 'self' 'unsafe-inline'; "
+    "script-src 'self'; "
+    "frame-ancestors 'none'"
+)
+# FastAPI Swagger UI loads bundle/CSS from jsDelivr and boots with an inline script.
+_SWAGGER_CSP = (
+    "default-src 'self'; "
+    "connect-src 'self'; "
+    "img-src 'self' data: https: http:; "
+    "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+    "frame-ancestors 'none'"
+)
 _SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
     "Referrer-Policy": "no-referrer",
-    "Content-Security-Policy": (
-        "default-src 'self'; "
-        "connect-src 'self'; "
-        "img-src 'self' data: http:; "
-        "style-src 'self' 'unsafe-inline'; "
-        "script-src 'self'; "
-        "frame-ancestors 'none'"
-    ),
 }
 
 _EXPENSIVE_GET_PATHS = frozenset({"/api/v1/fleet/upgrades"})
@@ -76,6 +85,7 @@ class RequestContextMiddleware:
                 headers["X-Request-ID"] = request_id
                 for name, value in _SECURITY_HEADERS.items():
                     headers[name] = value
+                headers["Content-Security-Policy"] = _csp_for_path(path)
             await send(message)
 
         try:
@@ -93,6 +103,12 @@ class RequestContextMiddleware:
                     },
                 )
             request_id_var.reset(token)
+
+
+def _csp_for_path(path: str) -> str:
+    if path == "/api/docs" or path.startswith("/api/docs/"):
+        return _SWAGGER_CSP
+    return _DEFAULT_CSP
 
 
 def _header_value(scope: Scope, name: bytes) -> str | None:
