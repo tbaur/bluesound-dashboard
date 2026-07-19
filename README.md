@@ -33,10 +33,9 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 
 ## Quick start
 
-One-time setup (venv + frontend deps), then:
-
 ```bash
-make run
+make install   # backend venv + frontend deps
+make run       # API then UI
 ```
 
 Open http://127.0.0.1:8765/ (API listens on http://127.0.0.1:8000/).

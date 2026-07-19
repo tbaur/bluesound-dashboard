@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Install local dependencies for backend (venv + editable [dev]) and frontend (npm ci).
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VENV="${ROOT}/backend/.venv"
+PYTHON="${VENV}/bin/python"
+PIP="${VENV}/bin/pip"
+
+log() { printf '[install] %s\n' "$*"; }
+
+log "backend: ensuring venv at backend/.venv"
+if [[ ! -x "${PYTHON}" ]]; then
+  python3 -m venv "${VENV}"
+fi
+
+log "backend: pip install -e '.[dev]'"
+(
+  cd "${ROOT}/backend"
+  "${PIP}" install -U pip
+  "${PIP}" install -e ".[dev]"
+)
+
+log "frontend: npm ci"
+(
+  cd "${ROOT}/frontend"
+  npm ci
+)
+
+log "done — next: make run (dev) or make build (production UI)"
