@@ -29,9 +29,9 @@ Open http://127.0.0.1:8765/
 ## Start (production-ish single process)
 
 ```bash
-cd frontend && npm ci && npm run build
-cd ../backend && pip install -e .
-BSD_STATIC_DIR=../frontend/dist uvicorn app.main:app --host 127.0.0.1 --port 8000
+make install
+make build
+cd backend && BSD_STATIC_DIR=../frontend/dist .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8000
 ```
 
 Environment variables: [CONFIGURATION.md](CONFIGURATION.md). Network exposure notes are in that doc's **Network exposure** section.

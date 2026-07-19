@@ -62,18 +62,10 @@ Example: `feat: add multi-room group create`
 ```bash
 git clone git@github.com:tbaur/bluesound-dashboard.git
 cd bluesound-dashboard
-
-# Backend
-cd backend
-python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]"
-
-# Frontend (new terminal)
-cd frontend
-npm ci
+make install
 ```
 
-Copy [.env.example](.env.example) to `.env` in the repo root when you need non-default settings. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) and [docs/RUNBOOK.md](docs/RUNBOOK.md).
+That creates `backend/.venv`, installs the backend with dev extras, and runs `npm ci` in `frontend/`. Copy [.env.example](.env.example) to `.env` in the repo root when you need non-default settings. See [docs/CONFIGURATION.md](docs/CONFIGURATION.md) and [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ### Run locally
 
@@ -81,7 +73,7 @@ Copy [.env.example](.env.example) to `.env` in the repo root when you need non-d
 make run
 ```
 
-Opens the UI at http://127.0.0.1:8765/ after the API is healthy on `:8000`. See [docs/RUNBOOK.md](docs/RUNBOOK.md).
+Opens the UI at http://127.0.0.1:8765/ after the API is healthy on `:8000`. For a production UI bundle: `make build` (writes `frontend/dist`). See [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ### Running checks
 
@@ -104,8 +96,8 @@ npm run build
 
 ```
 bluesound-dashboard/
-├── Makefile              # make run — local stack (API then UI)
-├── scripts/run           # implementation for make run
+├── Makefile              # make install / build / run
+├── scripts/              # install, build, run implementations
 ├── backend/app/          # FastAPI app (discovery, BluOS client, API, poller)
 ├── backend/tests/        # Backend tests (≥90% coverage required in CI)
 ├── frontend/src/         # React UI (Vite on :8765)
