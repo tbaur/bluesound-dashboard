@@ -72,6 +72,11 @@ export interface Preset {
   image: string;
 }
 
+export interface BluetoothResponse {
+  supported: boolean;
+  mode: string | null;
+}
+
 export interface SyncGroup {
   primary_id: string;
   primary_name: string;

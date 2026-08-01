@@ -89,7 +89,7 @@ describe('PlayerDetailPage maintenance', () => {
     getQueue.mockReset().mockResolvedValue({ items: [], count: 0 });
     getInputs.mockReset().mockResolvedValue([]);
     getPresets.mockReset().mockResolvedValue([]);
-    getBluetooth.mockReset().mockResolvedValue({ mode: 'Automatic' });
+    getBluetooth.mockReset().mockResolvedValue({ supported: true, mode: 'Automatic' });
     diagnose.mockReset().mockResolvedValue({
       device_id: 'player-kitchen',
       ip: '192.168.1.20',
@@ -175,5 +175,19 @@ describe('PlayerDetailPage maintenance', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Soft reboot' }));
     expect(reboot).not.toHaveBeenCalled();
     confirm.mockRestore();
+  });
+
+  it('hides Bluetooth when the player reports unsupported', async () => {
+    getBluetooth.mockResolvedValue({ supported: false, mode: null });
+    renderPlayer();
+    await screen.findByRole('button', { name: 'Soft reboot' });
+    expect(screen.queryByRole('heading', { name: 'Bluetooth' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Failed to load/i)).not.toBeInTheDocument();
+  });
+
+  it('shows Bluetooth controls when supported', async () => {
+    renderPlayer();
+    expect(await screen.findByRole('heading', { name: 'Bluetooth' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Automatic' })).toBeInTheDocument();
   });
 });

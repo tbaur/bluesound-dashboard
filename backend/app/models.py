@@ -253,6 +253,13 @@ class BluetoothRequest(BaseModel):
     mode: Literal[0, 1, 2, 3]
 
 
+class BluetoothResponse(BaseModel):
+    """Bluetooth mode when supported; ``supported=False`` for players without BT."""
+
+    supported: bool
+    mode: str | None = None
+
+
 class QueueMoveRequest(BaseModel):
     from_index: int = Field(ge=0, le=10_000, alias="from")
     to_index: int = Field(ge=0, le=10_000, alias="to")

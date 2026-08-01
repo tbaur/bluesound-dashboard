@@ -8,6 +8,7 @@ from app.bluos.client import BluOSClient
 from app.config import Settings
 from tests.fixtures.xml_samples import (
     CAPTURE_SETTINGS,
+    CAPTURE_SETTINGS_NO_BLUETOOTH,
     PRESETS,
     QUEUE,
     STATUS,
@@ -143,8 +144,28 @@ async def test_get_inputs_and_bluetooth_from_capture_settings(settings: Settings
             ("Optical Input", "spdif-1", False),
             ("HDMI ARC", "arc-1", False),
         ]
-        mode = await client.get_bluetooth_mode("192.168.1.20")
-        assert mode == "Disabled"
+        info = await client.get_bluetooth_info("192.168.1.20")
+        assert info is not None
+        assert info.supported is True
+        assert info.mode == "Disabled"
+        assert await client.get_bluetooth_mode("192.168.1.20") == "Disabled"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_bluetooth_absent_from_capture_settings(settings: Settings) -> None:
+    respx.get("http://192.168.1.20:11000/Settings").mock(
+        return_value=httpx.Response(200, content=CAPTURE_SETTINGS_NO_BLUETOOTH)
+    )
+    client = BluOSClient(settings)
+    try:
+        info = await client.get_bluetooth_info("192.168.1.20")
+        assert info is not None
+        assert info.supported is False
+        assert info.mode is None
+        assert await client.get_bluetooth_mode("192.168.1.20") is None
     finally:
         await client.aclose()
 

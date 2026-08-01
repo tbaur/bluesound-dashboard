@@ -1,6 +1,7 @@
 import type {
   ApiErrorBody,
   AudioInput,
+  BluetoothResponse,
   DeviceSettingsResponse,
   DiagnoseResponse,
   DevicesResponse,
@@ -127,8 +128,7 @@ export const api = {
   getInputs: (id: string) => request<AudioInput[]>(`/devices/${id}/inputs`),
   setInput: (id: string, input: string) =>
     request<void>(`/devices/${id}/input`, { method: 'POST', json: { input } }),
-  getBluetooth: (id: string) =>
-    request<{ mode: string }>(`/devices/${id}/bluetooth`),
+  getBluetooth: (id: string) => request<BluetoothResponse>(`/devices/${id}/bluetooth`),
   setBluetooth: (id: string, mode: 0 | 1 | 2 | 3) =>
     request<void>(`/devices/${id}/bluetooth`, { method: 'POST', json: { mode } }),
   getPresets: (id: string) => request<Preset[]>(`/devices/${id}/presets`),

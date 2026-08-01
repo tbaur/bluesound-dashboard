@@ -8,7 +8,15 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings, get_settings
-from app.models import AudioInput, PlayerStatus, Preset, QueueItem, QueueResponse, SyncRole
+from app.models import (
+    AudioInput,
+    BluetoothResponse,
+    PlayerStatus,
+    Preset,
+    QueueItem,
+    QueueResponse,
+    SyncRole,
+)
 from tests.helpers import app_with_players
 
 
@@ -142,7 +150,9 @@ async def test_queue_inputs_bluetooth_presets(
         return_value=[AudioInput(id="analog-1", name="Analog", selected=False)]
     )
     client.set_input = AsyncMock(return_value=True)  # type: ignore[method-assign]
-    client.get_bluetooth_mode = AsyncMock(return_value="Manual")  # type: ignore[method-assign]
+    client.get_bluetooth_info = AsyncMock(  # type: ignore[method-assign]
+        return_value=BluetoothResponse(supported=True, mode="Manual")
+    )
     client.set_bluetooth_mode = AsyncMock(return_value=True)  # type: ignore[method-assign]
     client.get_presets = AsyncMock(  # type: ignore[method-assign]
         return_value=[Preset(id="1", name="Morning")]
@@ -173,7 +183,7 @@ async def test_queue_inputs_bluetooth_presets(
         ).status_code == 204
 
         bt = await http.get("/api/v1/devices/player-kitchen/bluetooth")
-        assert bt.json()["mode"] == "Manual"
+        assert bt.json() == {"supported": True, "mode": "Manual"}
         assert (
             await http.post("/api/v1/devices/player-kitchen/bluetooth", json={"mode": 3})
         ).status_code == 204
@@ -196,7 +206,7 @@ async def test_read_endpoints_fail_when_client_returns_none(
     app, client, _, _ = await app_with_players(settings, monkeypatch)
     client.get_queue = AsyncMock(return_value=None)  # type: ignore[method-assign]
     client.get_inputs = AsyncMock(return_value=None)  # type: ignore[method-assign]
-    client.get_bluetooth_mode = AsyncMock(return_value=None)  # type: ignore[method-assign]
+    client.get_bluetooth_info = AsyncMock(return_value=None)  # type: ignore[method-assign]
     client.get_presets = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
     transport = ASGITransport(app=app)
@@ -205,6 +215,55 @@ async def test_read_endpoints_fail_when_client_returns_none(
         assert (await http.get("/api/v1/devices/player-kitchen/inputs")).status_code == 502
         assert (await http.get("/api/v1/devices/player-kitchen/bluetooth")).status_code == 502
         assert (await http.get("/api/v1/devices/player-kitchen/presets")).status_code == 502
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_bluetooth_unsupported_from_probe(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    app, client, _, _ = await app_with_players(settings, monkeypatch)
+    client.get_bluetooth_info = AsyncMock(  # type: ignore[method-assign]
+        return_value=BluetoothResponse(supported=False, mode=None)
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        bt = await http.get("/api/v1/devices/player-kitchen/bluetooth")
+        assert bt.status_code == 200
+        assert bt.json() == {"supported": False, "mode": None}
+        assert (
+            await http.post("/api/v1/devices/player-kitchen/bluetooth", json={"mode": 1})
+        ).status_code == 404
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_bluetooth_unsupported_ci_s2_skips_probe(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    players = [
+        PlayerStatus(
+            id="player-kitchen",
+            ip="192.168.1.20",
+            name="Kitchen Speakers",
+            model="CI S2",
+            brand="NAD",
+            full_model="NAD CI S2",
+            status="online",
+        )
+    ]
+    app, client, _, _ = await app_with_players(settings, monkeypatch, players=players)
+    client.get_bluetooth_info = AsyncMock(  # type: ignore[method-assign]
+        side_effect=AssertionError("CI S2 should not probe capture settings")
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        bt = await http.get("/api/v1/devices/player-kitchen/bluetooth")
+        assert bt.status_code == 200
+        assert bt.json() == {"supported": False, "mode": None}
+        assert (
+            await http.post("/api/v1/devices/player-kitchen/bluetooth", json={"mode": 0})
+        ).status_code == 404
     await client.aclose()
 
 

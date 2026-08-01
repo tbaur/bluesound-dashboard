@@ -95,6 +95,7 @@ export function PlayerDetailPage() {
   const [inputs, setInputs] = useState<AudioInput[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [bluetooth, setBluetooth] = useState('');
+  const [bluetoothSupported, setBluetoothSupported] = useState(false);
   const [diag, setDiag] = useState<DiagnoseResponse | null>(null);
   const [upgrade, setUpgrade] = useState<UpgradeStatus | null>(null);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
@@ -121,8 +122,13 @@ export function PlayerDetailPage() {
       else failures.push('inputs');
       if (p.status === 'fulfilled') setPresets(p.value);
       else failures.push('presets');
-      if (b.status === 'fulfilled') setBluetooth(b.value.mode);
-      else failures.push('bluetooth');
+      if (b.status === 'fulfilled') {
+        setBluetoothSupported(b.value.supported);
+        setBluetooth(b.value.supported ? (b.value.mode ?? '') : '');
+      } else {
+        setBluetoothSupported(false);
+        failures.push('bluetooth');
+      }
       if (d.status === 'fulfilled') setDiag(d.value);
       else failures.push('diagnostics');
       setDetailError(failures.length ? `Failed to load: ${failures.join(', ')}` : null);
@@ -531,34 +537,38 @@ export function PlayerDetailPage() {
             )}
           </section>
 
-          <section>
-            <h3>Bluetooth</h3>
-            <p className="card-meta">Current mode: {bluetooth || 'Unknown'}</p>
-            <div className="transport" style={{ marginTop: 8 }}>
-              {(
-                [
-                  [0, 'Manual'],
-                  [1, 'Automatic'],
-                  [2, 'Guest'],
-                  [3, 'Disabled'],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={bluetooth === label ? 'btn btn-primary' : 'btn'}
-                  onClick={() =>
-                    void control(device.id, async () => {
-                      await api.setBluetooth(device.id, mode);
-                      setBluetooth((await api.getBluetooth(device.id)).mode);
-                    })
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </section>
+          {bluetoothSupported ? (
+            <section>
+              <h3>Bluetooth</h3>
+              <p className="card-meta">Current mode: {bluetooth || 'Unknown'}</p>
+              <div className="transport" style={{ marginTop: 8 }}>
+                {(
+                  [
+                    [0, 'Manual'],
+                    [1, 'Automatic'],
+                    [2, 'Guest'],
+                    [3, 'Disabled'],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={bluetooth === label ? 'btn btn-primary' : 'btn'}
+                    onClick={() =>
+                      void control(device.id, async () => {
+                        await api.setBluetooth(device.id, mode);
+                        const next = await api.getBluetooth(device.id);
+                        setBluetoothSupported(next.supported);
+                        setBluetooth(next.supported ? (next.mode ?? '') : '');
+                      })
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <DeviceSettingsPanel deviceId={device.id} />
 

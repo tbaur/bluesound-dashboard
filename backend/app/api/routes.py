@@ -15,8 +15,10 @@ from fastapi.responses import StreamingResponse
 from app import __version__
 from app.api.deps import get_state
 from app.api.errors import AppError
+from app.capabilities import model_has_bluetooth
 from app.models import (
     BluetoothRequest,
+    BluetoothResponse,
     DeviceSettingsResponse,
     DevicesResponse,
     DiagnoseResponse,
@@ -589,18 +591,41 @@ async def set_input(device_id: str, body: InputRequest, state: StateDep) -> Resp
     return await _control(state, device_id, "input", op)
 
 
+def _bluetooth_unsupported_by_model(state: AppState, device_id: str) -> bool:
+    device = state.discovery.get_device(device_id)
+    if device is None:
+        return False
+    return (
+        model_has_bluetooth(
+            model=device.model,
+            brand=device.brand,
+            full_model=device.full_model,
+        )
+        is False
+    )
+
+
 @router.get("/devices/{device_id}/bluetooth")
-async def bluetooth(device_id: str, state: StateDep):
+async def bluetooth(device_id: str, state: StateDep) -> BluetoothResponse:
     ip = _require_device(state, device_id)
-    mode = await state.client.get_bluetooth_mode(ip)
-    if mode is None:
+    if _bluetooth_unsupported_by_model(state, device_id):
+        return BluetoothResponse(supported=False, mode=None)
+    info = await state.client.get_bluetooth_info(ip)
+    if info is None:
         raise AppError(502, "bluos_bluetooth_failed", "Failed to read Bluetooth mode")
-    return {"mode": mode}
+    return info
 
 
 @router.post("/devices/{device_id}/bluetooth", status_code=204)
 async def set_bluetooth(device_id: str, body: BluetoothRequest, state: StateDep) -> Response:
     ip = _require_device(state, device_id)
+    if _bluetooth_unsupported_by_model(state, device_id):
+        raise AppError(404, "bluetooth_unsupported", "This player does not support Bluetooth")
+    info = await state.client.get_bluetooth_info(ip)
+    if info is None:
+        raise AppError(502, "bluos_bluetooth_failed", "Failed to read Bluetooth mode")
+    if not info.supported:
+        raise AppError(404, "bluetooth_unsupported", "This player does not support Bluetooth")
 
     async def op(_: str) -> bool:
         return await state.client.set_bluetooth_mode(ip, body.mode)

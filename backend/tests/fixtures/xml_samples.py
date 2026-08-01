@@ -85,6 +85,15 @@ CAPTURE_SETTINGS = b"""<?xml version="1.0" encoding="UTF-8"?>
 </settings>
 """
 
+# CI / custom-install players (e.g. NAD CI S2) often omit bluetoothAutoplay entirely.
+CAPTURE_SETTINGS_NO_BLUETOOTH = b"""<?xml version="1.0" encoding="UTF-8"?>
+<settings>
+  <menuGroup id="capture" displayName="Inputs"/>
+  <menuGroup id="capture-input0" displayName="Analog Input" icon="/images/capture/ic_analoginput.png"/>
+  <menuGroup id="capture-input1" displayName="Optical Input" icon="/images/capture/ic_opticalinput.png"/>
+</settings>
+"""
+
 STATUS_CAPTURE_OPTICAL = b"""<?xml version="1.0" encoding="UTF-8"?>
 <status>
   <state>stream</state>

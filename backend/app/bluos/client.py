@@ -15,6 +15,7 @@ from app.bluos.xml import attr, safe_parse_xml, text
 from app.config import Settings
 from app.models import (
     AudioInput,
+    BluetoothResponse,
     DeviceSetting,
     DeviceSettingsResponse,
     PlayerStatus,
@@ -948,8 +949,13 @@ class BluOSClient:
             await self._get(ip, "/Play", query=f"inputTypeIndex={encoded}", control=True)
         ) is not None
 
-    async def get_bluetooth_mode(self, ip: str) -> str | None:
-        """Read Bluetooth mode from capture settings (no /AudioModes GET in v1.7)."""
+    async def get_bluetooth_info(self, ip: str) -> BluetoothResponse | None:
+        """Probe Bluetooth from capture settings (no /AudioModes GET in v1.7).
+
+        Returns ``None`` on hard failure (unreachable / unparseable). When capture
+        settings load but omit ``bluetoothAutoplay``, returns ``supported=False``
+        (e.g. NAD CI S2 and other players without a Bluetooth radio).
+        """
         raw = await self._get(ip, "/Settings", query="id=capture&schemaVersion=32")
         if not raw:
             return None
@@ -960,8 +966,18 @@ class BluOSClient:
             setting_id = setting.get("id") or setting.get("name")
             if setting_id == "bluetoothAutoplay":
                 mode = setting.get("value", "")
-                return self._BT_MODE_MAP.get(mode, "Unknown")
-        return None
+                return BluetoothResponse(
+                    supported=True,
+                    mode=self._BT_MODE_MAP.get(mode, "Unknown"),
+                )
+        return BluetoothResponse(supported=False, mode=None)
+
+    async def get_bluetooth_mode(self, ip: str) -> str | None:
+        """Read Bluetooth mode label, or ``None`` when unsupported / unreachable."""
+        info = await self.get_bluetooth_info(ip)
+        if info is None or not info.supported:
+            return None
+        return info.mode
 
     async def set_bluetooth_mode(self, ip: str, mode: int) -> bool:
         if mode not in (0, 1, 2, 3):
