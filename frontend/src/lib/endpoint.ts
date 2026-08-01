@@ -15,6 +15,17 @@ export function formatDeviceHost(device: Pick<PlayerStatus, 'ip' | 'port'>): str
   return `${device.ip}:${port}`;
 }
 
+/** Model line for fleet/detail; appends CI zone when present. */
+export function formatDeviceHardware(
+  device: Pick<PlayerStatus, 'full_model' | 'model' | 'zone'>,
+): string {
+  const model = device.full_model || device.model || 'BluOS';
+  if (typeof device.zone === 'number' && device.zone > 0) {
+    return `${model} · Zone ${device.zone}`;
+  }
+  return model;
+}
+
 export function endpointsMatch(
   a: string | undefined | null,
   b: string | undefined | null,

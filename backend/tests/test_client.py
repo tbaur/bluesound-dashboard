@@ -625,6 +625,7 @@ async def test_ci_secondary_zone_status_and_add_slave_port(settings: Settings) -
         )
         assert player.status == "online"
         assert player.port == 11010
+        assert player.zone == 2
         assert player.endpoint == "172.16.10.144:11010"
         assert player.brand == "NAD"
         assert await client.add_sync_slave(

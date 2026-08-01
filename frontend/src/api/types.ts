@@ -10,6 +10,8 @@ export interface PlayerStatus {
   model: string;
   brand: string;
   full_model: string;
+  /** CI multi-zone index (1-based); omitted/null for ordinary single-zone players. */
+  zone?: number | null;
   device_class: string;
   mac: string;
   status: string;

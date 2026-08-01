@@ -1,7 +1,7 @@
 import { Link } from 'react-router';
 import { api } from '@/api/client';
 import type { PlayerStatus } from '@/api/types';
-import { formatDeviceHost } from '@/lib/endpoint';
+import { formatDeviceHardware, formatDeviceHost } from '@/lib/endpoint';
 import { useFleetStore } from '@/store/fleetStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -117,9 +117,7 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
             {device.name}
           </Link>
         </div>
-        <div className="fleet-player-hardware">
-          {device.full_model || device.model || 'BluOS'}
-        </div>
+        <div className="fleet-player-hardware">{formatDeviceHardware(device)}</div>
         <div className="fleet-player-meta">
           {device.sync_role !== 'standalone' && (
             <span className="badge" data-role={device.sync_role}>

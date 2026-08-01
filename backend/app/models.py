@@ -24,6 +24,8 @@ class PlayerStatus(BaseModel):
     model: str = ""
     brand: str = ""
     full_model: str = ""
+    # CI multi-zone index (1-based); None for ordinary single-zone players.
+    zone: int | None = None
     device_class: str = ""
     mac: str = ""
     status: str = "offline"

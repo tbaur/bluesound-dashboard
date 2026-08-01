@@ -4,7 +4,12 @@ import { api } from '@/api/client';
 import type { AudioInput, DiagnoseResponse, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
 import { DeviceSettingsPanel } from '@/components/DeviceSettingsPanel';
 import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
-import { deviceEndpoint, endpointsMatch, formatDeviceHost } from '@/lib/endpoint';
+import {
+  deviceEndpoint,
+  endpointsMatch,
+  formatDeviceHardware,
+  formatDeviceHost,
+} from '@/lib/endpoint';
 import { useFleetStore } from '@/store/fleetStore';
 import { useLiveFleet } from '@/hooks/useLiveFleet';
 
@@ -223,7 +228,7 @@ export function PlayerDetailPage() {
           </Link>
           <h1 className="brand dossier-title">{device.name}</h1>
           <p className="brand-sub">
-            {[device.full_model || device.model, device.fw ? `fw ${device.fw}` : '']
+            {[formatDeviceHardware(device), device.fw ? `fw ${device.fw}` : '']
               .filter(Boolean)
               .join(' · ')}
           </p>

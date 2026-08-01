@@ -12,6 +12,7 @@ from urllib.parse import quote, urljoin, urlparse
 import httpx
 
 from app.bluos.xml import attr, safe_parse_xml, text
+from app.capabilities import infer_zone
 from app.config import Settings
 from app.models import (
     AudioInput,
@@ -476,6 +477,12 @@ class BluOSClient:
             player.full_model = f"{player.brand} {player.model}".strip()
         else:
             player.full_model = player.model
+        player.zone = infer_zone(
+            player.port,
+            model=player.model,
+            brand=player.brand,
+            full_model=player.full_model,
+        )
         player.status = "online"
         player.last_seen = time.time()
         return player
