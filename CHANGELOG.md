@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.6.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.5.0...v0.6.0) (2026-08-01)
+
+
+### Features
+
+* **discovery:** multi-zone endpoints and CI _musp browse ([#36](https://github.com/tbaur/bluesound-dashboard/issues/36)) ([97fede6](https://github.com/tbaur/bluesound-dashboard/commit/97fede6993e9bb492ffc850dec4642e4c1ec01da))
+
 ## [0.5.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.4.2...v0.5.0) (2026-07-18)
 
 
