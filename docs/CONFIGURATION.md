@@ -40,9 +40,11 @@ The backend only talks to discovered private IPs (see `BSD_ALLOW_NON_PRIVATE_IPS
 | `BSD_DISCOVERED_GRACE_TTL` | `60` | Control grace after a player drops from discovery |
 | `BSD_SSE_KEEPALIVE_SECONDS` | `15` | SSE keepalive interval |
 | `BSD_ALLOW_NON_PRIVATE_IPS` | `false` | Escape hatch — allow non-private device IPs (unsafe) |
-| `BSD_MDNS_SERVICE` | `_musc._tcp.local.` | mDNS service type |
-| `BSD_BLUOS_PORT` | `11000` | BluOS HTTP port |
+| `BSD_MDNS_SERVICE` | `_musc._tcp.local.` | Deprecated — ignored; mDNS always browses `_musc` + `_musp` |
+| `BSD_BLUOS_PORT` | `11000` | Default BluOS HTTP port (CI secondary zones use SRV ports, e.g. `11010+`) |
 | `BSD_WEB_UI_PORT` | `80` | Device web UI port (diagnostics, upgrade, setting writes) |
+
+mDNS discovers primary players (`_musc._tcp.local.`) and CI secondary zones (`_musp._tcp.local.`, e.g. NAD CI S2). Players are keyed as canonical `ip:port`. LSDP discovers chassis IPs only (normalized to `ip:11000`); secondary zones require mDNS. Only endpoints that answer `/SyncStatus` are kept in the fleet.
 
 ## Polling and device HTTP
 

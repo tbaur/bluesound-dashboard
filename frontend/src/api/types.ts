@@ -3,6 +3,9 @@ export type SyncRole = 'primary' | 'synced' | 'standalone';
 export interface PlayerStatus {
   id: string;
   ip: string;
+  /** BluOS API port; defaults to 11000 when omitted (legacy clients). */
+  port?: number;
+  endpoint?: string;
   name: string;
   model: string;
   brand: string;
@@ -73,6 +76,7 @@ export interface SyncGroup {
   primary_id: string;
   primary_name: string;
   primary_ip: string;
+  primary_endpoint?: string;
   group: string;
   slave_ids: string[];
   slave_names: string[];

@@ -5,7 +5,9 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, computed_field, field_validator
+
+from app.validators import DEFAULT_BLUOS_PORT, format_endpoint
 
 
 class SyncRole(str, Enum):
@@ -17,6 +19,7 @@ class SyncRole(str, Enum):
 class PlayerStatus(BaseModel):
     id: str
     ip: str
+    port: int = DEFAULT_BLUOS_PORT
     name: str = "Unknown"
     model: str = ""
     brand: str = ""
@@ -50,6 +53,12 @@ class PlayerStatus(BaseModel):
     consecutive_failures: int = 0
     last_seen: float | None = None
 
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def endpoint(self) -> str:
+        """Canonical ``ip:port`` used for BluOS API calls and sync membership."""
+        return format_endpoint(self.ip, self.port)
+
 
 class VolumeRequest(BaseModel):
     level: int = Field(ge=0, le=100)
@@ -70,6 +79,7 @@ class SyncEnableRequest(BaseModel):
 class DiagnoseResponse(BaseModel):
     device_id: str
     ip: str
+    port: int = DEFAULT_BLUOS_PORT
     name: str
     model: str = ""
     full_model: str = ""
@@ -163,6 +173,7 @@ class UpgradeStatus(BaseModel):
     device_id: str
     name: str
     ip: str
+    port: int = DEFAULT_BLUOS_PORT
     current_fw: str = ""
     update_available: bool = False
     message: str = ""
@@ -180,6 +191,7 @@ class FirmwareEntry(BaseModel):
     device_id: str
     name: str
     ip: str
+    port: int = DEFAULT_BLUOS_PORT
     model: str = ""
     fw: str = ""
     status: str = ""
@@ -283,6 +295,7 @@ class SyncGroup(BaseModel):
     primary_id: str
     primary_name: str
     primary_ip: str
+    primary_endpoint: str = ""
     group: str = ""
     slave_ids: list[str] = Field(default_factory=list)
     slave_names: list[str] = Field(default_factory=list)

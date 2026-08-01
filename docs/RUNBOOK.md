@@ -59,6 +59,7 @@ Vite proxies `/api` → the API. CORS defaults allow both `http://127.0.0.1:8765
 | Symptom | Likely cause | Action |
 |---------|--------------|--------|
 | Empty fleet | Discovery blocked (VPN/firewall) or no players | Wait for empty-fleet rediscovery (`BSD_EMPTY_FLEET_REDISCOVERY_SECONDS`); Rescan; try `BSD_DISCOVERY_METHOD=lsdp` |
+| Missing CI secondary zones | LSDP-only discovery (chassis/primary port) | Use `mdns` or `both` so `_musp` SRV ports (`11010+`) are found |
 | `device_not_found` on control | Player dropped off discovery (grace expired) | Rescan network; check `BSD_DISCOVERED_GRACE_TTL` |
 | One player stuck offline | Circuit slow-poll after failures | Power-cycle player; wait for recovery poll |
 | SSE reconnecting / stale UI | Proxy buffering, backend restart, or SSE backpressure | Check backend logs for `sse_drop_subscriber`; REST fallback polls every 5s |

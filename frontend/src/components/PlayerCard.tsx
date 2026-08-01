@@ -1,6 +1,7 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { api } from '@/api/client';
 import type { PlayerStatus } from '@/api/types';
+import { formatDeviceHost } from '@/lib/endpoint';
 import { useFleetStore } from '@/store/fleetStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -125,7 +126,7 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
               {device.sync_role}
             </span>
           )}
-          <span className="fleet-player-ip">{device.ip}</span>
+          <span className="fleet-player-ip">{formatDeviceHost(device)}</span>
         </div>
       </div>
 

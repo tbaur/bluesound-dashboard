@@ -25,7 +25,13 @@ from app.models import (
     SyncRole,
     UpgradeStatus,
 )
-from app.validators import make_device_id, parse_bluos_host, sanitize_ip
+from app.validators import (
+    format_endpoint,
+    make_device_id,
+    parse_bluos_endpoint,
+    parse_endpoint,
+    sanitize_ip,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -71,8 +77,16 @@ class BluOSClient:
         if self._owns_client:
             await self._client.aclose()
 
-    def _url(self, ip: str, path: str, query: str = "") -> str:
-        base = f"http://{ip}:{self.settings.bluos_port}{path}"
+    def _resolve_target(self, target: str) -> tuple[str, int] | None:
+        """Parse ``ip`` or ``ip:port`` into a validated ``(ip, port)`` pair."""
+        ip, port = parse_endpoint(target, default_port=self.settings.bluos_port)
+        if not ip:
+            return None
+        return ip, port
+
+    def _url(self, ip: str, path: str, query: str = "", *, port: int | None = None) -> str:
+        api_port = self.settings.bluos_port if port is None else port
+        base = f"http://{ip}:{api_port}{path}"
         return f"{base}?{query}" if query else base
 
     def _redirect_target_allowed(
@@ -146,22 +160,24 @@ class BluOSClient:
 
     async def _get(
         self,
-        ip: str,
+        target: str,
         path: str,
         *,
         query: str = "",
         retries: int = 3,
         control: bool = False,
     ) -> bytes | None:
-        sanitized = sanitize_ip(ip)
-        if not sanitized:
+        resolved = self._resolve_target(target)
+        if not resolved:
             return None
+        sanitized, port = resolved
+        endpoint_key = format_endpoint(sanitized, port)
         if not self.settings.is_allowed_device_ip(sanitized):
             logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
             return None
         if control:
-            await self._rate.wait(sanitized)
-        url = self._url(sanitized, path, query)
+            await self._rate.wait(endpoint_key)
+        url = self._url(sanitized, path, query, port=port)
         last_error: Exception | None = None
         for attempt in range(retries if not control else 1):
             try:
@@ -171,15 +187,19 @@ class BluOSClient:
                     return None
                 if response.status_code >= 400:
                     logger.debug(
-                        "bluos_http_error ip=%s path=%s status=%s",
-                        sanitized,
+                        "bluos_http_error endpoint=%s path=%s status=%s",
+                        endpoint_key,
                         path,
                         response.status_code,
                     )
                     return None
                 content = response.content
                 if len(content) > self.settings.max_xml_size:
-                    logger.warning("payload_too_large ip=%s path=%s", sanitized, path)
+                    logger.warning(
+                        "payload_too_large endpoint=%s path=%s",
+                        endpoint_key,
+                        path,
+                    )
                     return None
                 return content
             except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
@@ -189,32 +209,44 @@ class BluOSClient:
                 delay = min(10.0, (2**attempt) + 0.1)
                 await asyncio.sleep(delay)
         if last_error:
-            logger.debug("bluos_request_failed ip=%s path=%s err=%s", sanitized, path, last_error)
+            logger.debug(
+                "bluos_request_failed endpoint=%s path=%s err=%s",
+                endpoint_key,
+                path,
+                last_error,
+            )
         return None
 
     async def _post(
         self,
-        ip: str,
+        target: str,
         path: str,
         *,
         data: dict[str, str] | None = None,
         control: bool = False,
     ) -> bool:
-        sanitized = sanitize_ip(ip)
-        if not sanitized:
+        resolved = self._resolve_target(target)
+        if not resolved:
             return False
+        sanitized, port = resolved
+        endpoint_key = format_endpoint(sanitized, port)
         if not self.settings.is_allowed_device_ip(sanitized):
             logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
             return False
         if control:
-            await self._rate.wait(sanitized)
-        url = self._url(sanitized, path)
+            await self._rate.wait(endpoint_key)
+        url = self._url(sanitized, path, port=port)
         try:
             async with self._sem:
                 response = await self._follow_post(sanitized, url, data or {})
             return response is not None and response.status_code < 400
         except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
-            logger.debug("bluos_post_failed ip=%s path=%s err=%s", sanitized, path, exc)
+            logger.debug(
+                "bluos_post_failed endpoint=%s path=%s err=%s",
+                endpoint_key,
+                path,
+                exc,
+            )
             return False
 
     async def _get_text(self, ip: str, path: str) -> str | None:
@@ -223,24 +255,38 @@ class BluOSClient:
             return None
         return raw.decode("utf-8", errors="ignore")
 
-    def parse_sync_role(self, master: str, slaves: list[str], ip: str) -> SyncRole:
+    def parse_sync_role(self, master: str, slaves: list[str], endpoint: str) -> SyncRole:
         if slaves:
             return SyncRole.PRIMARY
-        if master and master != ip:
+        if master and master != endpoint:
             return SyncRole.SYNCED
         return SyncRole.STANDALONE
 
-    def _parse_sync(self, sync_xml: bytes, ip: str) -> dict[str, Any]:
-        root = safe_parse_xml(sync_xml, self.settings, ip)
+    def _parse_sync(self, sync_xml: bytes, endpoint: str) -> dict[str, Any]:
+        root = safe_parse_xml(sync_xml, self.settings, endpoint)
         if root is None:
             return {}
-        master = parse_bluos_host(attr(root, "master") or text(root, "master"))
+        default_port = self.settings.bluos_port
+        master_attr = attr(root, "master")
+        master_elem = root.find("master")
+        if master_elem is not None:
+            raw_master = (master_elem.text or "").strip()
+            port_attr = master_elem.attrib.get("port")
+            if raw_master and port_attr and ":" not in raw_master:
+                raw_master = f"{raw_master}:{port_attr.strip()}"
+            master = parse_bluos_endpoint(raw_master, default_port=default_port)
+        else:
+            master = parse_bluos_endpoint(master_attr, default_port=default_port)
         group = attr(root, "group") or text(root, "group")
         slaves: list[str] = []
         for slave_elem in root.findall("slave"):
-            slave_ip = parse_bluos_host(slave_elem.attrib.get("id") or (slave_elem.text or ""))
-            if slave_ip and slave_ip not in slaves:
-                slaves.append(slave_ip)
+            raw_id = slave_elem.attrib.get("id") or slave_elem.text or ""
+            port_attr = slave_elem.attrib.get("port")
+            if raw_id and port_attr and ":" not in raw_id.strip():
+                raw_id = f"{raw_id.strip()}:{port_attr.strip()}"
+            slave_ep = parse_bluos_endpoint(raw_id, default_port=default_port)
+            if slave_ep and slave_ep not in slaves:
+                slaves.append(slave_ep)
         battery_elem = root.find("battery")
         battery = battery_elem.attrib.get("level") if battery_elem is not None else None
         # Per-player volume lives on SyncStatus. For synced secondaries, /Status
@@ -273,14 +319,15 @@ class BluOSClient:
             "muted": muted,
         }
 
-    def _absolute_media_url(self, ip: str, path: str) -> str:
+    def _absolute_media_url(self, ip: str, path: str, *, port: int | None = None) -> str:
         value = (path or "").strip()
         if not value:
             return ""
         if value.startswith(("http://", "https://")):
             return value
         if value.startswith("/"):
-            return f"http://{ip}:{self.settings.bluos_port}{value}"
+            api_port = self.settings.bluos_port if port is None else port
+            return f"http://{ip}:{api_port}{value}"
         return value
 
     @staticmethod
@@ -290,10 +337,17 @@ class BluOSClient:
         except (TypeError, ValueError):
             return default
 
-    def _parse_status(self, status_xml: bytes, ip: str) -> dict[str, Any]:
+    def _parse_status(
+        self,
+        status_xml: bytes,
+        ip: str,
+        *,
+        port: int | None = None,
+    ) -> dict[str, Any]:
         root = safe_parse_xml(status_xml, self.settings, ip)
         if root is None:
             return {}
+        api_port = self.settings.bluos_port if port is None else port
         service = text(root, "service")
         service_name = text(root, "serviceName")
         if service == "Raat":
@@ -325,7 +379,7 @@ class BluOSClient:
             "album": text(root, "album") or text(root, "title3"),
             "quality": text(root, "quality"),
             "stream_format": text(root, "streamFormat"),
-            "image": self._absolute_media_url(ip, image),
+            "image": self._absolute_media_url(ip, image, port=api_port),
             "secs": self._parse_int(text(root, "secs")),
             "totlen": self._parse_int(text(root, "totlen")),
             "can_seek": text(root, "canSeek") in {"1", "true", "True"},
@@ -338,22 +392,25 @@ class BluOSClient:
 
     async def get_player_status(
         self,
-        ip: str,
+        target: str,
         *,
         device_id: str | None = None,
         node_id: str = "",
     ) -> PlayerStatus:
-        sanitized = sanitize_ip(ip)
-        if not sanitized:
-            return PlayerStatus(id="invalid", ip=ip or "", status="invalid")
+        resolved = self._resolve_target(target)
+        if not resolved:
+            return PlayerStatus(id="invalid", ip=target or "", status="invalid")
+        sanitized, port = resolved
+        endpoint = format_endpoint(sanitized, port)
 
         sync_xml, status_xml = await asyncio.gather(
-            self._get(sanitized, "/SyncStatus"),
-            self._get(sanitized, "/Status"),
+            self._get(endpoint, "/SyncStatus"),
+            self._get(endpoint, "/Status"),
         )
         player = PlayerStatus(
-            id=device_id or make_device_id(sanitized, node_id=node_id),
+            id=device_id or make_device_id(sanitized, node_id=node_id, port=port),
             ip=sanitized,
+            port=port,
         )
         if not sync_xml and not status_xml:
             player.status = "offline"
@@ -361,7 +418,7 @@ class BluOSClient:
 
         sync: dict[str, Any] = {}
         if sync_xml:
-            sync = self._parse_sync(sync_xml, sanitized)
+            sync = self._parse_sync(sync_xml, endpoint)
             if not sync:
                 player.status = "xml_error"
                 return player
@@ -376,16 +433,16 @@ class BluOSClient:
             player.group = sync["group"]
             player.slaves = sync["slaves"]
             player.battery = sync["battery"]
-            player.sync_role = self.parse_sync_role(player.master, player.slaves, sanitized)
+            player.sync_role = self.parse_sync_role(player.master, player.slaves, endpoint)
             if sync.get("volume") is not None:
                 player.volume = sync["volume"]
             if sync.get("muted") is not None:
                 player.muted = sync["muted"]
             if not device_id:
-                player.id = make_device_id(sanitized, player.name, node_id)
+                player.id = make_device_id(sanitized, player.name, node_id, port=port)
 
         if status_xml:
-            status = self._parse_status(status_xml, sanitized)
+            status = self._parse_status(status_xml, sanitized, port=port)
             if not status and player.status == "offline":
                 player.status = "xml_error"
                 return player
@@ -460,7 +517,8 @@ class BluOSClient:
 
     async def _get_web_ui(self, ip: str, path: str) -> str | None:
         """GET the device web UI (port 80 by default), not BluOS :11000."""
-        sanitized = sanitize_ip(ip)
+        resolved = self._resolve_target(ip)
+        sanitized = resolved[0] if resolved else sanitize_ip(ip)
         if not sanitized:
             return None
         if not self.settings.is_allowed_device_ip(sanitized):
@@ -483,7 +541,8 @@ class BluOSClient:
 
     async def _post_web_ui(self, ip: str, path: str, data: dict[str, str]) -> bool:
         """POST form data to the device web UI (reverse-engineered settings writes)."""
-        sanitized = sanitize_ip(ip)
+        resolved = self._resolve_target(ip)
+        sanitized = resolved[0] if resolved else sanitize_ip(ip)
         if not sanitized:
             return False
         if not self.settings.is_allowed_device_ip(sanitized):
@@ -572,12 +631,16 @@ class BluOSClient:
     async def get_upgrade_status(
         self, ip: str, *, device_id: str = "", name: str = "", current_fw: str = ""
     ) -> UpgradeStatus:
+        resolved = self._resolve_target(ip)
+        host = resolved[0] if resolved else (sanitize_ip(ip) or ip)
+        port = resolved[1] if resolved else self.settings.bluos_port
         html = await self._get_web_ui(ip, "/upgrade")
         if html is None:
             return UpgradeStatus(
                 device_id=device_id,
                 name=name,
-                ip=ip,
+                ip=host,
+                port=port,
                 current_fw=current_fw,
                 update_available=False,
                 message="Upgrade check failed",
@@ -587,7 +650,8 @@ class BluOSClient:
         return UpgradeStatus(
             device_id=device_id,
             name=name,
-            ip=ip,
+            ip=host,
+            port=port,
             current_fw=current_fw,
             update_available=available,
             message=message,
@@ -929,38 +993,42 @@ class BluOSClient:
             await self._get(ip, "/Preset", query=f"id={preset_id}", control=True)
         ) is not None
 
-    async def add_sync_slave(self, master_ip: str, slave_ip: str) -> bool:
-        master = sanitize_ip(master_ip)
-        slave = sanitize_ip(slave_ip)
+    async def add_sync_slave(self, master_target: str, slave_target: str) -> bool:
+        master = self._resolve_target(master_target)
+        slave = self._resolve_target(slave_target)
         if not master or not slave:
             return False
-        port = self.settings.bluos_port
+        master_ip, master_port = master
+        slave_ip, slave_port = slave
+        master_ep = format_endpoint(master_ip, master_port)
         ok = await self._get(
-            master,
+            master_ep,
             "/AddSlave",
-            query=f"slave={slave}&port={port}",
+            query=f"slave={slave_ip}&port={slave_port}",
             control=True,
         )
         if ok is not None:
             return True
         return (
-            await self._get(master, "/Sync", query=f"slave={slave}", control=True)
+            await self._get(master_ep, "/Sync", query=f"slave={slave_ip}", control=True)
         ) is not None
 
-    async def remove_sync_slave(self, master_ip: str, slave_ip: str) -> bool:
-        master = sanitize_ip(master_ip)
-        slave = sanitize_ip(slave_ip)
+    async def remove_sync_slave(self, master_target: str, slave_target: str) -> bool:
+        master = self._resolve_target(master_target)
+        slave = self._resolve_target(slave_target)
         if not master or not slave:
             return False
-        port = self.settings.bluos_port
+        master_ip, master_port = master
+        slave_ip, slave_port = slave
+        master_ep = format_endpoint(master_ip, master_port)
         ok = await self._get(
-            master,
+            master_ep,
             "/RemoveSlave",
-            query=f"slave={slave}&port={port}",
+            query=f"slave={slave_ip}&port={slave_port}",
             control=True,
         )
         if ok is not None:
             return True
         return (
-            await self._get(master, "/Sync", query=f"remove={slave}", control=True)
+            await self._get(master_ep, "/Sync", query=f"remove={slave_ip}", control=True)
         ) is not None

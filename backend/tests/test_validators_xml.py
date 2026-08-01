@@ -1,6 +1,13 @@
 from app.bluos.xml import attr, safe_parse_xml, text
 from app.config import Settings
-from app.validators import make_device_id, sanitize_ip, validate_device_id
+from app.validators import (
+    format_endpoint,
+    make_device_id,
+    parse_endpoint,
+    sanitize_endpoint,
+    sanitize_ip,
+    validate_device_id,
+)
 
 
 def test_sanitize_ip_accepts_valid() -> None:
@@ -23,6 +30,19 @@ def test_make_device_id_stable() -> None:
     b = make_device_id("192.168.1.10", name="Kitchen")
     assert a == b
     assert a.startswith("player-")
+
+
+def test_make_device_id_includes_port() -> None:
+    primary = make_device_id("192.168.1.10", name="Zone", port=11000)
+    secondary = make_device_id("192.168.1.10", name="Zone", port=11010)
+    assert primary != secondary
+
+
+def test_parse_endpoint_bare_and_ported() -> None:
+    assert parse_endpoint("192.168.1.1") == ("192.168.1.1", 11000)
+    assert parse_endpoint("192.168.1.1:11010") == ("192.168.1.1", 11010)
+    assert sanitize_endpoint("192.168.1.1:11010") == "192.168.1.1:11010"
+    assert format_endpoint("192.168.1.1", 11010) == "192.168.1.1:11010"
 
 
 def test_make_device_id_prefers_node_id() -> None:

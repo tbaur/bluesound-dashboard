@@ -55,10 +55,10 @@ class StatusPoller:
         self.running = False
 
     async def refresh_one(self, device_id: str) -> PlayerStatus | None:
-        ip = self.discovery.resolve_ip(device_id)
-        if not ip:
+        endpoint = self.discovery.resolve_endpoint(device_id)
+        if not endpoint:
             return None
-        player = await self.client.get_player_status(ip, device_id=device_id)
+        player = await self.client.get_player_status(endpoint, device_id=device_id)
         self._record_result(player)
         await self.discovery.update_device(player)
         await self.events.publish("device", player.model_dump())
@@ -139,7 +139,7 @@ class StatusPoller:
         )
 
     async def _poll_device(self, device: PlayerStatus) -> PlayerStatus:
-        return await self.client.get_player_status(device.ip, device_id=device.id)
+        return await self.client.get_player_status(device.endpoint, device_id=device.id)
 
     def _record_result(self, player: PlayerStatus) -> None:
         now = time.monotonic()

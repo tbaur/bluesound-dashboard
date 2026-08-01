@@ -6,7 +6,7 @@ from app.models import PlayerStatus, SyncGroup, SyncRole, SyncState
 
 
 def build_sync_state(devices: list[PlayerStatus]) -> SyncState:
-    by_ip = {d.ip: d for d in devices}
+    by_endpoint = {d.endpoint: d for d in devices}
     groups: list[SyncGroup] = []
     in_group: set[str] = set()
 
@@ -15,8 +15,8 @@ def build_sync_state(devices: list[PlayerStatus]) -> SyncState:
             continue
         slave_ids: list[str] = []
         slave_names: list[str] = []
-        for slave_ip in device.slaves:
-            slave = by_ip.get(slave_ip)
+        for slave_ep in device.slaves:
+            slave = by_endpoint.get(slave_ep)
             if slave:
                 slave_ids.append(slave.id)
                 slave_names.append(slave.name)
@@ -27,6 +27,7 @@ def build_sync_state(devices: list[PlayerStatus]) -> SyncState:
                 primary_id=device.id,
                 primary_name=device.name,
                 primary_ip=device.ip,
+                primary_endpoint=device.endpoint,
                 group=device.group,
                 slave_ids=slave_ids,
                 slave_names=slave_names,

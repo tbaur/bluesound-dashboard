@@ -26,7 +26,7 @@ async def test_both_mode_merges_mdns_and_lsdp(monkeypatch: pytest.MonkeyPatch) -
             pass
 
         def discover(self) -> list[str]:
-            return ["192.168.1.10"]
+            return ["192.168.1.10:11000"]
 
     class FakeLSDP:
         def __init__(self, *_args, **_kwargs) -> None:
@@ -43,13 +43,24 @@ async def test_both_mode_merges_mdns_and_lsdp(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setattr("app.discovery.service.MDNSDiscovery", FakeMDNS)
     monkeypatch.setattr("app.discovery.service.LSDPDiscovery", FakeLSDP)
 
-    async def fake_status(ip: str, device_id: str | None = None, node_id: str = ""):
-        return PlayerStatus(id=device_id or ip, ip=ip, name=ip, status="online")
+    async def fake_status(target: str, device_id: str | None = None, node_id: str = ""):
+        host = target.split(":")[0]
+        port = int(target.split(":")[1]) if ":" in target else 11000
+        return PlayerStatus(
+            id=device_id or host,
+            ip=host,
+            port=port,
+            name=host,
+            status="online",
+        )
 
     client.get_player_status = AsyncMock(side_effect=fake_status)  # type: ignore[method-assign]
 
     snapshot = await service.refresh()
     assert snapshot.method_used == "mdns+lsdp"
-    assert {d.ip for d in snapshot.devices} == {"192.168.1.10", "192.168.1.11"}
-    assert snapshot.endpoints["192.168.1.10"].node_id == "n10"
+    assert {d.endpoint for d in snapshot.devices} == {
+        "192.168.1.10:11000",
+        "192.168.1.11:11000",
+    }
+    assert snapshot.endpoints["192.168.1.10:11000"].node_id == "n10"
     await client.aclose()
