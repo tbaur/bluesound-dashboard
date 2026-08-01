@@ -39,11 +39,18 @@ function GroupVolumePanel({
   const holdVolumes = useFleetStore((s) => s.holdVolumes);
   const commitTimer = useRef<number | undefined>(undefined);
   const latestLevel = useRef(0);
+  const deviceIdsRef = useRef<string[]>([]);
+  const flushGeneration = useRef(0);
+  const draggingRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState(false);
   const [dragDraft, setDragDraft] = useState<number | null>(null);
 
   const deviceIds = useMemo(() => devices.map((d) => d.id), [devices]);
+  useEffect(() => {
+    deviceIdsRef.current = deviceIds;
+  }, [deviceIds]);
+
   const fleetMedian = medianVolume(devices.map((d) => d.volume));
   const display = dragDraft ?? fleetMedian;
   const volumesMatch =
@@ -54,26 +61,42 @@ function GroupVolumePanel({
     latestLevel.current = display;
   }, [display]);
 
+  useEffect(
+    () => () => {
+      if (commitTimer.current) window.clearTimeout(commitTimer.current);
+      flushGeneration.current += 1;
+    },
+    [],
+  );
+
   const flush = (level: number) => {
+    const ids = deviceIdsRef.current.slice();
+    if (ids.length === 0) return;
+    const generation = ++flushGeneration.current;
     setPending(true);
-    void setFleetVolume(level, deviceIds).finally(() => {
+    holdVolumes(ids, 5000);
+    void setFleetVolume(level, ids).finally(() => {
+      // Only the latest in-flight flush owns the Syncing… indicator.
+      if (generation !== flushGeneration.current) return;
       setPending(false);
       setDragDraft(null);
     });
   };
 
-  const onInput = (level: number) => {
+  const scheduleFlush = (level: number) => {
     latestLevel.current = level;
     setDragDraft(level);
-    holdVolumes(deviceIds, 5000);
+    holdVolumes(deviceIdsRef.current, 5000);
     if (commitTimer.current) window.clearTimeout(commitTimer.current);
     commitTimer.current = window.setTimeout(() => {
       commitTimer.current = undefined;
-      flush(level);
+      flush(latestLevel.current);
     }, 80);
   };
 
   const endDrag = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
     setDragging(false);
     if (commitTimer.current) {
       window.clearTimeout(commitTimer.current);
@@ -111,7 +134,6 @@ function GroupVolumePanel({
                 onClick={() => {
                   setDragDraft(fleetMedian);
                   latestLevel.current = fleetMedian;
-                  holdVolumes(deviceIds, 5000);
                   flush(fleetMedian);
                 }}
               >
@@ -125,7 +147,7 @@ function GroupVolumePanel({
         <VolumeNudgeButtons
           value={display}
           disabled={pending}
-          onChange={(level) => onInput(level)}
+          onChange={(level) => scheduleFlush(level)}
         />
         <label htmlFor={inputId}>Vol</label>
         <input
@@ -139,13 +161,15 @@ function GroupVolumePanel({
           aria-valuenow={display}
           aria-label={ariaLabel}
           onPointerDown={() => {
+            draggingRef.current = true;
             setDragging(true);
             setDragDraft(fleetMedian);
-            holdVolumes(deviceIds, 5000);
+            latestLevel.current = fleetMedian;
+            holdVolumes(deviceIdsRef.current, 5000);
           }}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
-          onChange={(e) => onInput(Number(e.target.value))}
+          onChange={(e) => scheduleFlush(Number(e.target.value))}
         />
         <span className="global-volume-value" title={`${display}%`}>
           {display}

@@ -229,11 +229,12 @@ export const useFleetStore = create<FleetState>((set, get) => ({
 
   setFleetVolume: async (level, deviceIds) => {
     const clamped = Math.max(0, Math.min(100, Math.round(level)));
-    const ids =
-      deviceIds && deviceIds.length > 0
-        ? deviceIds
-        : get().devices.map((d) => d.id);
-    const scoped = Boolean(deviceIds?.length);
+    // undefined → whole fleet; explicit [] is a caller bug (no-op).
+    if (deviceIds !== undefined && deviceIds.length === 0) return;
+    const scoped = deviceIds !== undefined;
+    const ids = scoped ? deviceIds : get().devices.map((d) => d.id);
+    if (ids.length === 0) return;
+
     if (scoped) {
       get().holdVolumes(ids);
       get().setVolumesLocal(clamped, ids);

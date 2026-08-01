@@ -218,6 +218,14 @@ async def set_fleet_volume(body: VolumeRequest, state: StateDep) -> FleetVolumeR
             )
         return FleetVolumeResult(device_id=device_id, name=name, ok=ok)
 
+    logger.info(
+        "fleet_volume_targets",
+        extra={
+            "action": "volume",
+            "target_count": len(targets),
+            "scoped": bool(body.device_ids),
+        },
+    )
     results = await asyncio.gather(
         *(set_one(d.id, d.name, d.endpoint) for d in targets)
     )

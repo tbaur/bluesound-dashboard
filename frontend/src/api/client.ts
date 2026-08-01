@@ -85,16 +85,21 @@ export const api = {
     request<void>(`/devices/${id}/reboot`, { method: 'POST', json: { soft } }),
   setVolume: (id: string, level: number) =>
     request<void>(`/devices/${id}/volume`, { method: 'POST', json: { level } }),
-  setFleetVolume: (level: number, deviceIds?: string[]) =>
-    request<{
+  setFleetVolume: (level: number, deviceIds?: string[]) => {
+    const body =
+      deviceIds === undefined
+        ? { level }
+        : { level, device_ids: deviceIds };
+    return request<{
       level: number;
       succeeded: number;
       failed: number;
       results: { device_id: string; name: string; ok: boolean }[];
     }>('/fleet/volume', {
       method: 'POST',
-      json: deviceIds?.length ? { level, device_ids: deviceIds } : { level },
-    }),
+      json: body,
+    });
+  },
   fleetMute: (mute: boolean) =>
     request<{
       action: string;
