@@ -1,4 +1,4 @@
-import { Navigate, Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router';
 import { FleetPage } from '@/components/FleetPage';
 import { HousePage } from '@/components/HousePage';
 import { PlayerDetailPage } from '@/components/PlayerDetailPage';
