@@ -1,7 +1,12 @@
 import { Link } from 'react-router';
 import { api } from '@/api/client';
 import type { PlayerStatus } from '@/api/types';
-import { formatDeviceHardware, formatDeviceHost } from '@/lib/endpoint';
+import {
+  deviceEndpoint,
+  endpointsMatch,
+  formatDeviceHardware,
+  formatDeviceHost,
+} from '@/lib/endpoint';
 import { useFleetStore } from '@/store/fleetStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -31,7 +36,7 @@ function nowPlaying(device: PlayerStatus): { primary: string; secondary: string;
 
 function primaryNameFor(device: PlayerStatus, devices: PlayerStatus[]): string | null {
   if (device.sync_role !== 'synced' || !device.master) return null;
-  const primary = devices.find((d) => d.ip === device.master);
+  const primary = devices.find((d) => endpointsMatch(deviceEndpoint(d), device.master));
   return primary?.name ?? device.master;
 }
 

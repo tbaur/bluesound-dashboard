@@ -46,7 +46,7 @@ from app.models import (
 )
 from app.services.sync import build_sync_state
 from app.state import AppState
-from app.validators import validate_device_id
+from app.validators import DEFAULT_BLUOS_PORT, parse_endpoint, validate_device_id
 
 logger = logging.getLogger(__name__)
 
@@ -54,10 +54,23 @@ router = APIRouter(prefix="/api/v1")
 StateDep = Annotated[AppState, Depends(get_state)]
 
 
+def _endpoint_host(endpoint: str, *, default_port: int = DEFAULT_BLUOS_PORT) -> str | None:
+    host, _port = parse_endpoint(endpoint, default_port=default_port)
+    return host
+
+
+def _chassis_representatives(devices: list[PlayerStatus]) -> list[PlayerStatus]:
+    """One device per chassis IP (prefer primary BluOS port) for web-UI ops."""
+    by_ip: dict[str, PlayerStatus] = {}
+    for device in devices:
+        existing = by_ip.get(device.ip)
+        if existing is None or device.port < existing.port:
+            by_ip[device.ip] = device
+    return list(by_ip.values())
+
+
 def _require_device(state: AppState, device_id: str) -> str:
     """Return canonical BluOS endpoint (``ip:port``) for a known device id."""
-    from app.validators import parse_endpoint
-
     if not validate_device_id(device_id):
         raise AppError(400, "invalid_device_id", "Device id format is invalid")
     if not state.discovery.is_known_id(device_id):
@@ -65,7 +78,7 @@ def _require_device(state: AppState, device_id: str) -> str:
     endpoint = state.discovery.resolve_endpoint(device_id)
     if not endpoint:
         raise AppError(404, "device_not_found", "Device endpoint could not be resolved")
-    host, _port = parse_endpoint(endpoint, default_port=state.settings.bluos_port)
+    host = _endpoint_host(endpoint, default_port=state.settings.bluos_port)
     if not host or not state.settings.is_allowed_device_ip(host):
         raise AppError(403, "ip_not_allowed", "Device IP is outside the allowed range")
     if state.discovery.is_in_grace(device_id):
@@ -168,32 +181,34 @@ async def refresh_devices(state: StateDep) -> DevicesResponse:
 
 @router.post("/fleet/volume", response_model=FleetVolumeResponse)
 async def set_fleet_volume(body: VolumeRequest, state: StateDep) -> FleetVolumeResponse:
-    """Set every discovered player to the same volume level."""
+    """Set every discovered player (including CI secondary zones) to the same level."""
     snapshot = await state.discovery.get_devices()
     if not snapshot.devices:
         raise AppError(404, "no_devices", "No discovered devices to control")
 
     level = body.level
+    default_port = state.settings.bluos_port
 
-    async def set_one(device_id: str, name: str, ip: str) -> FleetVolumeResult:
-        if not state.settings.is_allowed_device_ip(ip):
+    async def set_one(device_id: str, name: str, endpoint: str) -> FleetVolumeResult:
+        host = _endpoint_host(endpoint, default_port=default_port)
+        if not host or not state.settings.is_allowed_device_ip(host):
             return FleetVolumeResult(device_id=device_id, name=name, ok=False)
         logger.info(
             "control_op",
-            extra={"op": "fleet_volume", "device_id": device_id, "device_ip": ip},
+            extra={"op": "fleet_volume", "device_id": device_id, "device_ip": endpoint},
         )
-        ok = await state.client.set_volume(ip, level)
+        ok = await state.client.set_volume(endpoint, level)
         if ok:
             _schedule_refresh(state, device_id)
         else:
             logger.warning(
                 "control_failed",
-                extra={"op": "fleet_volume", "device_id": device_id, "device_ip": ip},
+                extra={"op": "fleet_volume", "device_id": device_id, "device_ip": endpoint},
             )
         return FleetVolumeResult(device_id=device_id, name=name, ok=ok)
 
     results = await asyncio.gather(
-        *(set_one(d.id, d.name, d.ip) for d in snapshot.devices)
+        *(set_one(d.id, d.name, d.endpoint) for d in snapshot.devices)
     )
     succeeded = sum(1 for r in results if r.ok)
     failed = len(results) - succeeded
@@ -215,30 +230,42 @@ async def _fleet_action(
     state: AppState,
     action: str,
     run,
+    *,
+    devices: list[PlayerStatus] | None = None,
 ) -> FleetActionResponse:
-    snapshot = await state.discovery.get_devices()
-    if not snapshot.devices:
+    """Run a BluOS (or chassis) control against each target endpoint."""
+    if devices is None:
+        snapshot = await state.discovery.get_devices()
+        devices = snapshot.devices
+    if not devices:
         raise AppError(404, "no_devices", "No discovered devices to control")
 
-    async def one(device_id: str, name: str, ip: str) -> FleetVolumeResult:
-        if not state.settings.is_allowed_device_ip(ip):
+    default_port = state.settings.bluos_port
+
+    async def one(device_id: str, name: str, endpoint: str) -> FleetVolumeResult:
+        host = _endpoint_host(endpoint, default_port=default_port)
+        if not host or not state.settings.is_allowed_device_ip(host):
             return FleetVolumeResult(device_id=device_id, name=name, ok=False)
         logger.info(
             "control_op",
-            extra={"op": f"fleet_{action}", "device_id": device_id, "device_ip": ip},
+            extra={"op": f"fleet_{action}", "device_id": device_id, "device_ip": endpoint},
         )
-        ok = await run(ip)
+        ok = await run(endpoint)
         if ok:
             _schedule_refresh(state, device_id)
         else:
             logger.warning(
                 "control_failed",
-                extra={"op": f"fleet_{action}", "device_id": device_id, "device_ip": ip},
+                extra={
+                    "op": f"fleet_{action}",
+                    "device_id": device_id,
+                    "device_ip": endpoint,
+                },
             )
         return FleetVolumeResult(device_id=device_id, name=name, ok=ok)
 
     results = await asyncio.gather(
-        *(one(d.id, d.name, d.ip) for d in snapshot.devices)
+        *(one(d.id, d.name, d.endpoint) for d in devices)
     )
     succeeded = sum(1 for r in results if r.ok)
     failed = len(results) - succeeded
@@ -261,7 +288,7 @@ async def fleet_mute(body: MuteRequest, state: StateDep) -> FleetActionResponse:
     return await _fleet_action(
         state,
         "mute" if body.mute else "unmute",
-        lambda ip: state.client.set_mute(ip, body.mute),
+        lambda endpoint: state.client.set_mute(endpoint, body.mute),
     )
 
 
@@ -277,14 +304,16 @@ async def fleet_stop(state: StateDep) -> FleetActionResponse:
 
 @router.post("/fleet/reboot", response_model=FleetActionResponse)
 async def fleet_reboot(body: RebootRequest, state: StateDep) -> FleetActionResponse:
-    """Soft or hard reboot every discovered player (device web UI /reboot)."""
+    """Soft or hard reboot each chassis once (device web UI /reboot)."""
     soft = body.soft
     action = "soft_reboot" if soft else "reboot"
+    snapshot = await state.discovery.get_devices()
+    targets = _chassis_representatives(snapshot.devices)
 
-    async def run(ip: str) -> bool:
-        return await state.client.reboot(ip, soft=soft)
+    async def run(endpoint: str) -> bool:
+        return await state.client.reboot(endpoint, soft=soft)
 
-    return await _fleet_action(state, action, run)
+    return await _fleet_action(state, action, run, devices=targets)
 
 
 @router.get("/devices/{device_id}")
@@ -481,7 +510,11 @@ async def fleet_upgrades(state: StateDep) -> FleetUpgradeResponse:
         state.fleet_upgrades_cached_at = now
         return empty
 
-    async def one(device) -> UpgradeStatus:
+    # Upgrade status is chassis web-UI scoped; probe once per IP, then fan out
+    # so secondary CI zones share the same result without duplicate HTTP calls.
+    chassis = _chassis_representatives(snapshot.devices)
+
+    async def probe(device: PlayerStatus) -> UpgradeStatus:
         if not state.settings.is_allowed_device_ip(device.ip):
             return UpgradeStatus(
                 device_id=device.id,
@@ -499,7 +532,33 @@ async def fleet_upgrades(state: StateDep) -> FleetUpgradeResponse:
             current_fw=device.fw,
         )
 
-    results = list(await asyncio.gather(*(one(d) for d in snapshot.devices)))
+    probed = list(await asyncio.gather(*(probe(d) for d in chassis)))
+    by_ip = {status.ip: status for status in probed}
+    results: list[UpgradeStatus] = []
+    for device in snapshot.devices:
+        base = by_ip.get(device.ip)
+        if base is None:
+            results.append(
+                UpgradeStatus(
+                    device_id=device.id,
+                    name=device.name,
+                    ip=device.ip,
+                    current_fw=device.fw,
+                    update_available=False,
+                    message="IP not allowed",
+                    ok=False,
+                )
+            )
+            continue
+        results.append(
+            base.model_copy(
+                update={
+                    "device_id": device.id,
+                    "name": device.name,
+                    "current_fw": device.fw or base.current_fw,
+                }
+            )
+        )
     failed = sum(1 for r in results if not r.ok)
     updates = sum(1 for r in results if r.ok and r.update_available)
     response = FleetUpgradeResponse(

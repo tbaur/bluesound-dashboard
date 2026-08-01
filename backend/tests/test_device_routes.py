@@ -284,6 +284,8 @@ async def test_fleet_mute_pause_stop(settings: Settings, monkeypatch: pytest.Mon
         mute = await http.post("/api/v1/fleet/mute", json={"mute": True})
         assert mute.status_code == 200
         assert mute.json()["succeeded"] == 2
+        mute_targets = {call.args[0] for call in client.set_mute.await_args_list}
+        assert mute_targets == {"192.168.1.10:11000", "192.168.1.11:11000"}
 
         pause = await http.post("/api/v1/fleet/pause")
         assert pause.status_code == 200
@@ -302,6 +304,74 @@ async def test_fleet_mute_pause_stop(settings: Settings, monkeypatch: pytest.Mon
         hard = await http.post("/api/v1/fleet/reboot", json={"soft": False})
         assert hard.status_code == 200
         assert hard.json()["action"] == "reboot"
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_fleet_mute_targets_ci_secondary_zone(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Mute-all must hit each CI zone endpoint, not collapse onto :11000."""
+    players = [
+        PlayerStatus(
+            id="zone-1",
+            ip="172.16.10.144",
+            port=11000,
+            name="Living Room Speakers",
+            model="CI S2",
+            brand="NAD",
+            full_model="NAD CI S2",
+            zone=1,
+            status="online",
+        ),
+        PlayerStatus(
+            id="zone-2",
+            ip="172.16.10.144",
+            port=11010,
+            name="Kitchen Speakers",
+            model="CI S2",
+            brand="NAD",
+            full_model="NAD CI S2",
+            zone=2,
+            status="online",
+        ),
+    ]
+    app, client, _, _ = await app_with_players(settings, monkeypatch, players=players)
+    client.set_mute = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.set_volume = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.pause = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.reboot = AsyncMock(return_value=True)  # type: ignore[method-assign]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        mute = await http.post("/api/v1/fleet/mute", json={"mute": True})
+        assert mute.status_code == 200
+        assert mute.json()["succeeded"] == 2
+        assert {c.args[0] for c in client.set_mute.await_args_list} == {
+            "172.16.10.144:11000",
+            "172.16.10.144:11010",
+        }
+
+        volume = await http.post("/api/v1/fleet/volume", json={"level": 20})
+        assert volume.status_code == 200
+        assert {c.args[0] for c in client.set_volume.await_args_list} == {
+            "172.16.10.144:11000",
+            "172.16.10.144:11010",
+        }
+
+        pause = await http.post("/api/v1/fleet/pause")
+        assert pause.status_code == 200
+        assert {c.args[0] for c in client.pause.await_args_list} == {
+            "172.16.10.144:11000",
+            "172.16.10.144:11010",
+        }
+
+        # Chassis web UI: reboot once per IP, not once per zone.
+        soft = await http.post("/api/v1/fleet/reboot", json={"soft": True})
+        assert soft.status_code == 200
+        assert soft.json()["succeeded"] == 1
+        assert client.reboot.await_count == 1
+        assert client.reboot.await_args.args[0] == "172.16.10.144:11000"
     await client.aclose()
 
 

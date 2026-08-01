@@ -44,8 +44,8 @@ async def test_fleet_volume_sets_all(settings: Settings, monkeypatch: pytest.Mon
         PlayerStatus(id="player-b", ip="192.168.1.11", name="B", status="online", volume=20),
     ]
     discovery._snapshot.devices = players
-    discovery._snapshot.ips_by_id = {p.id: p.ip for p in players}
-    discovery._snapshot.ids_by_ip = {p.ip: p.id for p in players}
+    discovery._snapshot.endpoints_by_id = {p.id: p.endpoint for p in players}
+    discovery._snapshot.ids_by_endpoint = {p.endpoint: p.id for p in players}
     discovery._snapshot.discovered_at = 1.0
     poller = StatusPoller(settings, discovery, client, events)
     poller.refresh_one = AsyncMock(return_value=None)  # type: ignore[method-assign]
@@ -67,4 +67,8 @@ async def test_fleet_volume_sets_all(settings: Settings, monkeypatch: pytest.Mon
         assert body["succeeded"] == 2
         assert body["failed"] == 0
         assert client.set_volume.await_count == 2
+        assert {c.args[0] for c in client.set_volume.await_args_list} == {
+            "192.168.1.10:11000",
+            "192.168.1.11:11000",
+        }
     await client.aclose()
