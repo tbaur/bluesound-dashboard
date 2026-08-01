@@ -20,11 +20,15 @@ This project is a local LAN dashboard (not published to PyPI or npm). A release 
 4. **release-please** opens or updates a **Release PR** titled `chore(main): release X.Y.Z`. It bumps versions in `.release-please-manifest.json`, `backend`/`frontend` package metadata, and appends to `CHANGELOG.md`. Multiple code PRs merged before a release are batched into one Release PR.
 5. Merging the Release PR triggers `release.yml` again, which creates the `vX.Y.Z` git tag and publishes a GitHub Release.
 
+A release therefore reduces to: merge the code PR(s), then merge the Release PR.
+
 ## Branch protection
 
 `main` should stay compatible with this flow:
 
 - **Require a pull request before merging** (0 required approvals is fine for a solo maintainer).
+- **Enforce for administrators** so direct pushes to `main` are blocked.
+- **Squash-only merges** with the PR title as the commit subject (release-please reads that title).
 - **Block force-pushes and deletions.**
 - **Do not require status checks on the Release PR.** GitHub does not trigger workflows for PRs opened by the built-in `GITHUB_TOKEN` (loop prevention), so a required check would leave every Release PR permanently unmergeable. Code PRs still run Tests/CodeQL; review those before merging.
 

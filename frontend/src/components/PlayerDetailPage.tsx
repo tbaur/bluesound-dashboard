@@ -4,6 +4,7 @@ import { api } from '@/api/client';
 import type { AudioInput, DiagnoseResponse, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
 import { DeviceSettingsPanel } from '@/components/DeviceSettingsPanel';
 import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
+import { deviceEndpoint, endpointsMatch, formatDeviceHost } from '@/lib/endpoint';
 import { useFleetStore } from '@/store/fleetStore';
 import { useLiveFleet } from '@/hooks/useLiveFleet';
 
@@ -188,7 +189,7 @@ export function PlayerDetailPage() {
   }
 
   const primary = device.master
-    ? devices.find((d) => d.ip === device.master)
+    ? devices.find((d) => endpointsMatch(deviceEndpoint(d), device.master))
     : null;
   const playing = ['play', 'stream', 'connecting'].includes(device.state);
   const isIdle =
@@ -343,7 +344,7 @@ export function PlayerDetailPage() {
               <dt>Network</dt>
               <dd>
                 {diag.network_name}
-                {device.ip ? ` · ${device.ip}` : ''}
+                {device.ip ? ` · ${formatDeviceHost(device)}` : ''}
                 {device.mac ? ` · ${device.mac}` : ''}
               </dd>
             </div>
@@ -351,7 +352,7 @@ export function PlayerDetailPage() {
             <div>
               <dt>Network</dt>
               <dd>
-                {device.ip}
+                {formatDeviceHost(device)}
                 {device.mac ? ` · ${device.mac}` : ''}
               </dd>
             </div>

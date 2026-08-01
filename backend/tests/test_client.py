@@ -41,7 +41,7 @@ async def test_get_player_status_parses_sync_and_status(settings: Settings) -> N
         assert player.state == "play"
         assert player.volume == 22
         assert player.track == "Song Title"
-        assert player.slaves == ["192.168.1.21"]
+        assert player.slaves == ["192.168.1.21:11000"]
         assert player.sync_role.value == "primary"
         assert player.mac == "90:56:82:00:00:01"
         assert player.device_class == "streamer"
@@ -390,6 +390,8 @@ async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
         assert "bluetoothAutoplay=1" in str(bt.calls.last.request.url)
         assert await client.add_sync_slave("192.168.1.20", "192.168.1.21") is True
         assert add.called
+        assert "slave=192.168.1.21" in str(add.calls.last.request.url)
+        assert "port=11000" in str(add.calls.last.request.url)
         assert await client.remove_sync_slave("192.168.1.20", "192.168.1.21") is True
         assert remove.called
         assert await client.adjust_volume("192.168.1.20", 5, 10) is True
@@ -571,5 +573,44 @@ async def test_web_ui_port_override(settings: Settings) -> None:
         status = await client.get_upgrade_status("192.168.1.20")
         assert status.ok is True
         assert status.update_available is False
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_ci_secondary_zone_status_and_add_slave_port(settings: Settings) -> None:
+    sync = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<SyncStatus name="Zone B" modelName="CI S2" brand="NAD" id="172.16.10.144:11010" volume="10">
+</SyncStatus>
+"""
+    status = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<status><state>stop</state><volume>10</volume></status>
+"""
+    respx.get("http://172.16.10.144:11010/SyncStatus").mock(
+        return_value=httpx.Response(200, content=sync)
+    )
+    respx.get("http://172.16.10.144:11010/Status").mock(
+        return_value=httpx.Response(200, content=status)
+    )
+    add = respx.get("http://172.16.10.144:11000/AddSlave").mock(
+        return_value=httpx.Response(200, content=b"<ok/>")
+    )
+    client = BluOSClient(settings)
+    try:
+        player = await client.get_player_status(
+            "172.16.10.144:11010",
+            device_id="zone-b",
+        )
+        assert player.status == "online"
+        assert player.port == 11010
+        assert player.endpoint == "172.16.10.144:11010"
+        assert player.brand == "NAD"
+        assert await client.add_sync_slave(
+            "172.16.10.144:11000",
+            "172.16.10.144:11010",
+        )
+        assert "slave=172.16.10.144" in str(add.calls.last.request.url)
+        assert "port=11010" in str(add.calls.last.request.url)
     finally:
         await client.aclose()
