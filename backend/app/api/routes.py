@@ -53,21 +53,25 @@ StateDep = Annotated[AppState, Depends(get_state)]
 
 
 def _require_device(state: AppState, device_id: str) -> str:
+    """Return canonical BluOS endpoint (``ip:port``) for a known device id."""
+    from app.validators import parse_endpoint
+
     if not validate_device_id(device_id):
         raise AppError(400, "invalid_device_id", "Device id format is invalid")
     if not state.discovery.is_known_id(device_id):
         raise AppError(404, "device_not_found", "Device is not in the discovered set")
-    ip = state.discovery.resolve_ip(device_id)
-    if not ip:
-        raise AppError(404, "device_not_found", "Device IP could not be resolved")
-    if not state.settings.is_allowed_device_ip(ip):
+    endpoint = state.discovery.resolve_endpoint(device_id)
+    if not endpoint:
+        raise AppError(404, "device_not_found", "Device endpoint could not be resolved")
+    host, _port = parse_endpoint(endpoint, default_port=state.settings.bluos_port)
+    if not host or not state.settings.is_allowed_device_ip(host):
         raise AppError(403, "ip_not_allowed", "Device IP is outside the allowed range")
     if state.discovery.is_in_grace(device_id):
         logger.warning(
             "control_during_grace",
-            extra={"op": "resolve", "device_id": device_id, "device_ip": ip},
+            extra={"op": "resolve", "device_id": device_id, "device_ip": endpoint},
         )
-    return ip
+    return endpoint
 
 
 _pending_refresh: dict[str, asyncio.Task[object]] = {}
@@ -369,6 +373,7 @@ async def diagnose(device_id: str, state: StateDep) -> DiagnoseResponse:
     return DiagnoseResponse(
         device_id=device.id,
         ip=device.ip,
+        port=device.port,
         name=device.name,
         model=device.model,
         full_model=device.full_model,
@@ -442,6 +447,7 @@ async def fleet_firmware(state: StateDep) -> FleetFirmwareResponse:
             device_id=d.id,
             name=d.name,
             ip=d.ip,
+            port=d.port,
             model=d.full_model or d.model,
             fw=d.fw,
             status=d.status,
@@ -671,7 +677,7 @@ async def sync_enable(body: SyncEnableRequest, state: StateDep) -> SyncEnableRes
     )
 
     async def link_slave(slave: PlayerStatus) -> FleetVolumeResult:
-        ok = await state.client.add_sync_slave(primary_ip, slave.ip)
+        ok = await state.client.add_sync_slave(primary_ip, slave.endpoint)
         return FleetVolumeResult(device_id=slave.id, name=slave.name, ok=ok)
 
     link_results = list(await asyncio.gather(*(link_slave(d) for d in slaves)))

@@ -148,9 +148,9 @@ async def test_get_device_refresh_and_grace_control(
     app, client, discovery, poller = await app_with_players(settings, monkeypatch)
     grace_id = "player-grace"
     discovery._snapshot.devices = []
-    discovery._snapshot.ips_by_id = {}
+    discovery._snapshot.endpoints_by_id = {}
     discovery._grace_until[grace_id] = time.time() + 60
-    discovery._grace_ips[grace_id] = "192.168.1.99"
+    discovery._grace_endpoints[grace_id] = "192.168.1.99:11000"
 
     refreshed = PlayerStatus(
         id=grace_id,
@@ -169,7 +169,7 @@ async def test_get_device_refresh_and_grace_control(
         assert play.status_code == 204
 
         # Known in map but missing from devices list → refresh_one
-        discovery._snapshot.ips_by_id[grace_id] = "192.168.1.99"
+        discovery._snapshot.endpoints_by_id[grace_id] = "192.168.1.99:11000"
         discovery._snapshot.devices = []
         got = await http.get(f"/api/v1/devices/{grace_id}")
         assert got.status_code == 200
@@ -192,7 +192,7 @@ async def test_sync_remove_and_break_failures(
             ip="192.168.1.10",
             name="P",
             status="online",
-            slaves=["192.168.1.11"],
+            slaves=["192.168.1.11:11000"],
             sync_role=SyncRole.PRIMARY,
         ),
         PlayerStatus(
@@ -200,7 +200,7 @@ async def test_sync_remove_and_break_failures(
             ip="192.168.1.11",
             name="S",
             status="online",
-            master="192.168.1.10",
+            master="192.168.1.10:11000",
             sync_role=SyncRole.SYNCED,
         ),
     ]
@@ -245,10 +245,12 @@ async def test_discovery_cache_grace_and_enrich_error(
     client.get_player_status = AsyncMock(side_effect=boom)  # type: ignore[method-assign]
 
     snap = await service.refresh()
-    assert snap.devices[0].status == "error"
-    assert service.cache_fresh() is True
+    # Failed SyncStatus probes are dropped (not kept as error players).
+    assert snap.devices == []
+    assert snap.discovered_at is not None
+    # Empty fleets are not served from cache — force rediscovery path runs.
     cached = await service.get_devices()
-    assert cached.discovered_at == snap.discovered_at
+    assert cached.devices == []
 
     # update_device appends unknown player
     extra = PlayerStatus(id="extra", ip="192.168.1.30", name="X", status="online")

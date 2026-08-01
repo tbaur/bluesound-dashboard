@@ -26,6 +26,13 @@ def settings() -> Settings:
     )
 
 
+def _seed_devices(discovery: DiscoveryService, devices: list[PlayerStatus]) -> None:
+    discovery._snapshot.devices = devices
+    discovery._snapshot.endpoints_by_id = {p.id: p.endpoint for p in devices}
+    discovery._snapshot.ids_by_endpoint = {p.endpoint: p.id for p in devices}
+    discovery._snapshot.discovered_at = 1.0
+
+
 @pytest.mark.asyncio
 async def test_sync_remove_stops_slave_and_empty_primary(
     settings: Settings,
@@ -48,7 +55,7 @@ async def test_sync_remove_stops_slave_and_empty_primary(
         ip="192.168.1.10",
         name="Living",
         status="online",
-        slaves=["192.168.1.11"],
+        slaves=["192.168.1.11:11000"],
         sync_role=SyncRole.PRIMARY,
     )
     slave = PlayerStatus(
@@ -56,13 +63,10 @@ async def test_sync_remove_stops_slave_and_empty_primary(
         ip="192.168.1.11",
         name="Kitchen",
         status="online",
-        master="192.168.1.10",
+        master="192.168.1.10:11000",
         sync_role=SyncRole.SYNCED,
     )
-    discovery._snapshot.devices = [primary, slave]
-    discovery._snapshot.ips_by_id = {primary.id: primary.ip, slave.id: slave.ip}
-    discovery._snapshot.ids_by_ip = {primary.ip: primary.id, slave.ip: slave.id}
-    discovery._snapshot.discovered_at = 1.0
+    _seed_devices(discovery, [primary, slave])
     poller = StatusPoller(settings, discovery, client, events)
     poller.refresh_one = AsyncMock(return_value=None)  # type: ignore[method-assign]
     client.remove_sync_slave = AsyncMock(return_value=True)  # type: ignore[method-assign]
@@ -92,10 +96,13 @@ async def test_sync_remove_stops_slave_and_empty_primary(
             json={"master_id": "primary", "slave_id": "slave"},
         )
     assert response.status_code == 204
-    client.remove_sync_slave.assert_awaited_once_with("192.168.1.10", "192.168.1.11")
+    client.remove_sync_slave.assert_awaited_once_with(
+        "192.168.1.10:11000",
+        "192.168.1.11:11000",
+    )
     assert client.stop.await_count == 2
-    stopped_ips = [call.args[0] for call in client.stop.await_args_list]
-    assert stopped_ips == ["192.168.1.11", "192.168.1.10"]
+    stopped = [call.args[0] for call in client.stop.await_args_list]
+    assert stopped == ["192.168.1.11:11000", "192.168.1.10:11000"]
 
 
 @pytest.mark.asyncio
@@ -118,7 +125,7 @@ async def test_sync_remove_keeps_primary_playing_when_slaves_remain(
         ip="192.168.1.10",
         name="Living",
         status="online",
-        slaves=["192.168.1.11", "192.168.1.12"],
+        slaves=["192.168.1.11:11000", "192.168.1.12:11000"],
         sync_role=SyncRole.PRIMARY,
     )
     slave = PlayerStatus(
@@ -126,7 +133,7 @@ async def test_sync_remove_keeps_primary_playing_when_slaves_remain(
         ip="192.168.1.11",
         name="Kitchen",
         status="online",
-        master="192.168.1.10",
+        master="192.168.1.10:11000",
         sync_role=SyncRole.SYNCED,
     )
     other = PlayerStatus(
@@ -134,21 +141,10 @@ async def test_sync_remove_keeps_primary_playing_when_slaves_remain(
         ip="192.168.1.12",
         name="Roaming",
         status="online",
-        master="192.168.1.10",
+        master="192.168.1.10:11000",
         sync_role=SyncRole.SYNCED,
     )
-    discovery._snapshot.devices = [primary, slave, other]
-    discovery._snapshot.ips_by_id = {
-        primary.id: primary.ip,
-        slave.id: slave.ip,
-        other.id: other.ip,
-    }
-    discovery._snapshot.ids_by_ip = {
-        primary.ip: primary.id,
-        slave.ip: slave.id,
-        other.ip: other.id,
-    }
-    discovery._snapshot.discovered_at = 1.0
+    _seed_devices(discovery, [primary, slave, other])
     poller = StatusPoller(settings, discovery, client, events)
     poller.refresh_one = AsyncMock(return_value=None)  # type: ignore[method-assign]
     client.remove_sync_slave = AsyncMock(return_value=True)  # type: ignore[method-assign]
@@ -159,7 +155,7 @@ async def test_sync_remove_keeps_primary_playing_when_slaves_remain(
             ip="192.168.1.10",
             name="Living",
             status="online",
-            slaves=["192.168.1.12"],
+            slaves=["192.168.1.12:11000"],
             sync_role=SyncRole.PRIMARY,
         )
     )
@@ -178,7 +174,7 @@ async def test_sync_remove_keeps_primary_playing_when_slaves_remain(
             json={"master_id": "primary", "slave_id": "slave"},
         )
     assert response.status_code == 204
-    client.stop.assert_awaited_once_with("192.168.1.11")
+    client.stop.assert_awaited_once_with("192.168.1.11:11000")
 
 
 @pytest.mark.asyncio
@@ -201,7 +197,7 @@ async def test_sync_break_does_not_stop_primary_when_all_removals_fail(
         ip="192.168.1.10",
         name="Living",
         status="online",
-        slaves=["192.168.1.11"],
+        slaves=["192.168.1.11:11000"],
         sync_role=SyncRole.PRIMARY,
     )
     slave = PlayerStatus(
@@ -209,13 +205,10 @@ async def test_sync_break_does_not_stop_primary_when_all_removals_fail(
         ip="192.168.1.11",
         name="Kitchen",
         status="online",
-        master="192.168.1.10",
+        master="192.168.1.10:11000",
         sync_role=SyncRole.SYNCED,
     )
-    discovery._snapshot.devices = [primary, slave]
-    discovery._snapshot.ips_by_id = {primary.id: primary.ip, slave.id: slave.ip}
-    discovery._snapshot.ids_by_ip = {primary.ip: primary.id, slave.ip: slave.id}
-    discovery._snapshot.discovered_at = 1.0
+    _seed_devices(discovery, [primary, slave])
     poller = StatusPoller(settings, discovery, client, events)
     poller.refresh_one = AsyncMock(return_value=None)  # type: ignore[method-assign]
     client.remove_sync_slave = AsyncMock(return_value=False)  # type: ignore[method-assign]
