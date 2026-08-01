@@ -1,4 +1,5 @@
 import type { PlayerStatus } from '@/api/types';
+import { deviceEndpoint, endpointsMatch } from '@/lib/endpoint';
 
 export type FleetSortMode = 'name' | 'sync';
 
@@ -26,11 +27,13 @@ export function sortBySyncGroup(devices: PlayerStatus[]): PlayerStatus[] {
     result.push(primary);
     used.add(primary.id);
 
+    const primaryEp = deviceEndpoint(primary);
     const followers = devices
       .filter(
         (d) =>
           d.sync_role === 'synced' &&
-          (d.master === primary.ip || primary.slaves.includes(d.ip)),
+          (endpointsMatch(d.master, primaryEp) ||
+            primary.slaves.some((slave) => endpointsMatch(slave, deviceEndpoint(d)))),
       )
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name));

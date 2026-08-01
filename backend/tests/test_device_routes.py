@@ -59,7 +59,7 @@ async def test_device_volume_mute_adjust(
         assert (
             await http.post("/api/v1/devices/player-kitchen/volume/adjust", json={"delta": 2})
         ).status_code == 204
-        client.adjust_volume.assert_awaited_with("192.168.1.20", 2, 22)
+        client.adjust_volume.assert_awaited_with("192.168.1.20:11000", 2, 22)
     await client.aclose()
 
 
@@ -400,7 +400,7 @@ async def test_settings_write_forwards_empty_control_path(
         )
         assert write.status_code == 204
         client.set_device_setting.assert_awaited_once_with(
-            "192.168.1.20",
+            "192.168.1.20:11000",
             "fixedVolume",
             "ON",
             control_path="",

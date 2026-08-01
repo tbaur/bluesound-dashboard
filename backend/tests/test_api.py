@@ -31,7 +31,7 @@ def test_build_sync_state() -> None:
         ip="192.168.1.10",
         name="Primary",
         status="online",
-        slaves=["192.168.1.11"],
+        slaves=["192.168.1.11:11000"],
         sync_role=SyncRole.PRIMARY,
         group="Group",
     )
@@ -40,7 +40,7 @@ def test_build_sync_state() -> None:
         ip="192.168.1.11",
         name="Slave",
         status="online",
-        master="192.168.1.10",
+        master="192.168.1.10:11000",
         sync_role=SyncRole.SYNCED,
     )
     solo = PlayerStatus(
@@ -74,8 +74,8 @@ async def _app_with_player(settings: Settings, monkeypatch: pytest.MonkeyPatch):
         status="online",
     )
     discovery._snapshot.devices = [player]
-    discovery._snapshot.ips_by_id = {player.id: player.ip}
-    discovery._snapshot.ids_by_ip = {player.ip: player.id}
+    discovery._snapshot.endpoints_by_id = {player.id: player.endpoint}
+    discovery._snapshot.ids_by_endpoint = {player.endpoint: player.id}
     discovery._snapshot.discovered_at = 1.0
     discovery._snapshot.method_used = "mdns"
     poller = StatusPoller(settings, discovery, client, events)

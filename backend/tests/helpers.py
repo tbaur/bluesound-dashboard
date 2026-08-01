@@ -42,8 +42,8 @@ async def app_with_players(
         )
     ]
     discovery._snapshot.devices = devices
-    discovery._snapshot.ips_by_id = {p.id: p.ip for p in devices}
-    discovery._snapshot.ids_by_ip = {p.ip: p.id for p in devices}
+    discovery._snapshot.endpoints_by_id = {p.id: p.endpoint for p in devices}
+    discovery._snapshot.ids_by_endpoint = {p.endpoint: p.id for p in devices}
     discovery._snapshot.discovered_at = 1.0
     discovery._snapshot.method_used = "mdns"
     poller = StatusPoller(settings, discovery, client, events)

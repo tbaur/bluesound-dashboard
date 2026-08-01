@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { api } from '@/api/client';
 import type { FleetUpgradeResponse, UpgradeStatus } from '@/api/types';
 import { ApiError } from '@/api/types';

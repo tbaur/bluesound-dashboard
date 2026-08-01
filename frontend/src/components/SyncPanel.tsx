@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { api } from '@/api/client';
 import type { PlayerStatus, SyncGroup, SyncState } from '@/api/types';
+import { deviceEndpoint } from '@/lib/endpoint';
 import { useFleetStore } from '@/store/fleetStore';
 
 function occupiedRoomIds(groups: SyncGroup[]): Set<string> {
@@ -135,6 +136,7 @@ export function SyncPanel() {
         primary_id: primaryId,
         primary_name: lead.name,
         primary_ip: lead.ip,
+        primary_endpoint: deviceEndpoint(lead),
         group: lead.group || '',
         slave_ids: [slaveId],
         slave_names: [follower.name],
@@ -151,11 +153,11 @@ export function SyncPanel() {
     holdSync(6000);
     patchDevice(primaryId, {
       sync_role: 'primary',
-      slaves: Array.from(new Set([...(lead.slaves ?? []), follower.ip])),
+      slaves: Array.from(new Set([...(lead.slaves ?? []), deviceEndpoint(follower)])),
     });
     patchDevice(slaveId, {
       sync_role: 'synced',
-      master: lead.ip,
+      master: deviceEndpoint(lead),
     });
   };
 

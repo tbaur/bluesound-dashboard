@@ -13,7 +13,7 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 
 ## Features
 
-- **Discovery** on page load, on demand, and automatic re-scan when the fleet is empty
+- **Discovery** on page load, on demand, and automatic re-scan when the fleet is empty — mDNS browses `_musc` and `_musp` (CI secondary zones as `ip:port`)
 - **Live fleet** via server-side poller + SSE (REST fallback when SSE reconnects)
 - **Playback** play / pause / stop / skip / back / toggle
 - **Volume** absolute level, relative adjust (+/−), mute (per-player and house-wide)

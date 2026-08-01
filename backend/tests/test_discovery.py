@@ -19,10 +19,13 @@ async def test_discovery_enrich_uses_client(monkeypatch: pytest.MonkeyPatch) -> 
     async def fake_endpoints(self: DiscoveryService):
         return [DiscoveredEndpoint(ip="192.168.1.20", node_id="n1")], "mdns"
 
-    async def fake_status(ip: str, device_id: str | None = None, node_id: str = ""):
+    async def fake_status(target: str, device_id: str | None = None, node_id: str = ""):
+        host = target.split(":")[0]
+        port = int(target.split(":")[1]) if ":" in target else 11000
         return PlayerStatus(
             id=device_id or "player-x",
-            ip=ip,
+            ip=host,
+            port=port,
             name="Kitchen",
             status="online",
         )
@@ -47,7 +50,7 @@ async def test_grace_preserves_ip_after_drop(monkeypatch: pytest.MonkeyPatch) ->
     client = BluOSClient(settings)
     service = DiscoveryService(settings, client)
     device_id = "player-grace"
-    service._snapshot.ips_by_id = {device_id: "192.168.1.55"}
+    service._snapshot.endpoints_by_id = {device_id: "192.168.1.55:11000"}
     service._snapshot.devices = [
         PlayerStatus(id=device_id, ip="192.168.1.55", name="Office", status="online"),
     ]
@@ -56,19 +59,19 @@ async def test_grace_preserves_ip_after_drop(monkeypatch: pytest.MonkeyPatch) ->
     async def empty_refresh(self: DiscoveryService, *, force: bool = True):
         now = __import__("time").time()
         self._grace_until[device_id] = now + settings.discovered_grace_ttl
-        self._grace_ips[device_id] = "192.168.1.55"
+        self._grace_endpoints[device_id] = "192.168.1.55:11000"
         self._snapshot = DiscoverySnapshot(
             devices=[],
             discovered_at=now,
             method_used="mdns",
-            ips_by_id={},
-            ids_by_ip={},
+            endpoints_by_id={},
+            ids_by_endpoint={},
         )
         return self._snapshot
 
     monkeypatch.setattr(DiscoveryService, "_refresh", empty_refresh)
     await service.refresh()
-    assert device_id not in service.snapshot.ips_by_id
+    assert device_id not in service.snapshot.endpoints_by_id
     assert service.is_known_id(device_id)
-    assert service.resolve_ip(device_id) == "192.168.1.55"
+    assert service.resolve_endpoint(device_id) == "192.168.1.55:11000"
     await client.aclose()
