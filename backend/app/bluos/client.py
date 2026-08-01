@@ -30,6 +30,7 @@ from app.models import (
 from app.validators import (
     format_endpoint,
     make_device_id,
+    normalize_bluos_mac,
     parse_bluos_endpoint,
     parse_endpoint,
     sanitize_ip,
@@ -310,7 +311,7 @@ class BluOSClient:
             "model_code": attr(root, "model"),
             "brand": attr(root, "brand"),
             "device_class": attr(root, "class"),
-            "mac": attr(root, "mac"),
+            "mac": normalize_bluos_mac(attr(root, "mac")),
             "db": attr(root, "db"),
             "fw": attr(root, "version"),
             "master": master,

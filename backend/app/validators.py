@@ -116,3 +116,25 @@ def parse_bluos_host(value: str) -> str:
         return ""
     ip, _port = parse_endpoint(value.strip())
     return ip or ""
+
+
+_MAC_OCTET_RE = re.compile(r"^[0-9A-Fa-f]{2}$")
+
+
+def normalize_bluos_mac(value: str | None) -> str:
+    """Return a chassis MAC, stripping BluOS CI secondary-zone ``:port`` suffixes.
+
+    Secondary zones often report ``mac="aa:bb:cc:dd:ee:ff:11010"`` so each zone has a
+    distinct SyncStatus id while sharing one NIC. UI and diagnostics want the real MAC.
+    """
+    if not value or not isinstance(value, str):
+        return ""
+    cleaned = value.strip()
+    if not cleaned:
+        return ""
+    parts = cleaned.split(":")
+    if len(parts) >= 7 and parts[6].isdigit() and all(_MAC_OCTET_RE.fullmatch(p) for p in parts[:6]):
+        return ":".join(parts[:6]).upper()
+    if len(parts) == 6 and all(_MAC_OCTET_RE.fullmatch(p) for p in parts):
+        return cleaned.upper()
+    return cleaned
