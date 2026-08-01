@@ -181,10 +181,21 @@ async def refresh_devices(state: StateDep) -> DevicesResponse:
 
 @router.post("/fleet/volume", response_model=FleetVolumeResponse)
 async def set_fleet_volume(body: VolumeRequest, state: StateDep) -> FleetVolumeResponse:
-    """Set every discovered player (including CI secondary zones) to the same level."""
+    """Set volume on discovered players (optionally filtered by ``device_ids``)."""
     snapshot = await state.discovery.get_devices()
     if not snapshot.devices:
         raise AppError(404, "no_devices", "No discovered devices to control")
+
+    if body.device_ids:
+        wanted = set(body.device_ids)
+        for device_id in wanted:
+            if not validate_device_id(device_id):
+                raise AppError(400, "invalid_device_id", "Device id format is invalid")
+        targets = [d for d in snapshot.devices if d.id in wanted]
+        if not targets:
+            raise AppError(404, "no_devices", "No matching devices to control")
+    else:
+        targets = snapshot.devices
 
     level = body.level
     default_port = state.settings.bluos_port
@@ -208,7 +219,7 @@ async def set_fleet_volume(body: VolumeRequest, state: StateDep) -> FleetVolumeR
         return FleetVolumeResult(device_id=device_id, name=name, ok=ok)
 
     results = await asyncio.gather(
-        *(set_one(d.id, d.name, d.endpoint) for d in snapshot.devices)
+        *(set_one(d.id, d.name, d.endpoint) for d in targets)
     )
     succeeded = sum(1 for r in results if r.ok)
     failed = len(results) - succeeded

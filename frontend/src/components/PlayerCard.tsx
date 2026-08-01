@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { api } from '@/api/client';
 import type { PlayerStatus } from '@/api/types';
+import { isCiS2Device } from '@/lib/deviceGroups';
 import {
   deviceEndpoint,
   endpointsMatch,
@@ -52,8 +53,12 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
   const [dragVolume, setDragVolume] = useState<number | null>(null);
   const displayVolume = dragVolume ?? device.volume;
 
+  const volumePeers = useMemo(() => {
+    const s2 = isCiS2Device(device);
+    return devices.filter((d) => isCiS2Device(d) === s2);
+  }, [device, devices]);
   const volumesLinked =
-    devices.length > 1 && devices.every((d) => d.volume === devices[0].volume);
+    volumePeers.length > 1 && volumePeers.every((d) => d.volume === volumePeers[0].volume);
   const follows = useMemo(() => primaryNameFor(device, devices), [device, devices]);
   const synced = device.sync_role === 'synced';
   const playing = isPlaying(device.state);
@@ -232,7 +237,14 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
         />
         <span className="volume-value">{displayVolume}</span>
         {volumesLinked ? (
-          <span className="volume-linked" title="All players share this volume">
+          <span
+            className="volume-linked"
+            title={
+              isCiS2Device(device)
+                ? 'CI S2 zones share this volume'
+                : 'Residential players share this volume'
+            }
+          >
             link
           </span>
         ) : null}

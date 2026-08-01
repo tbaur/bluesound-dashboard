@@ -64,6 +64,8 @@ class PlayerStatus(BaseModel):
 
 class VolumeRequest(BaseModel):
     level: int = Field(ge=0, le=100)
+    # When non-empty, only these device ids are targeted (e.g. CI S2 zones).
+    device_ids: list[str] = Field(default_factory=list, max_length=256)
 
 
 class VolumeAdjustRequest(BaseModel):
