@@ -133,7 +133,8 @@ def normalize_bluos_mac(value: str | None) -> str:
     if not cleaned:
         return ""
     parts = cleaned.split(":")
-    if len(parts) >= 7 and parts[6].isdigit() and all(_MAC_OCTET_RE.fullmatch(p) for p in parts[:6]):
+    octets_ok = all(_MAC_OCTET_RE.fullmatch(p) for p in parts[:6])
+    if len(parts) >= 7 and parts[6].isdigit() and octets_ok:
         return ":".join(parts[:6]).upper()
     if len(parts) == 6 and all(_MAC_OCTET_RE.fullmatch(p) for p in parts):
         return cleaned.upper()

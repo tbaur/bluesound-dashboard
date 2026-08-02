@@ -607,10 +607,12 @@ async def test_web_ui_port_override(settings: Settings) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_ci_secondary_zone_status_and_add_slave_port(settings: Settings) -> None:
-    sync = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<SyncStatus name="Zone B" modelName="CI S2" brand="NAD" id="172.16.10.144:11010" volume="10" mac="90:56:82:16:61:B7:11010">
-</SyncStatus>
-"""
+    sync = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<SyncStatus name="Zone B" modelName="CI S2" brand="NAD" '
+        b'id="172.16.10.144:11010" volume="10" mac="90:56:82:16:61:B7:11010">'
+        b"</SyncStatus>"
+    )
     status = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <status><state>stop</state><volume>10</volume></status>
 """
