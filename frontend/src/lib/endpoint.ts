@@ -1,4 +1,5 @@
 import type { PlayerStatus } from '@/api/types';
+import { META_SEP } from '@/lib/meta';
 
 const DEFAULT_BLUOS_PORT = 11000;
 
@@ -21,7 +22,7 @@ export function formatDeviceHardware(
 ): string {
   const model = device.full_model || device.model || 'BluOS';
   if (typeof device.zone === 'number' && device.zone > 0) {
-    return `${model} · Zone ${device.zone}`;
+    return `${model}${META_SEP}Zone ${device.zone}`;
   }
   return model;
 }

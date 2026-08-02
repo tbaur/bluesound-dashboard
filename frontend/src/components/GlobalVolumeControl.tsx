@@ -197,42 +197,68 @@ function FleetActionsPanel() {
     void action().finally(() => setBusy(null));
   };
 
+  const showArt = status.hasDominantStream && !status.isIdle;
+  const artHref = status.leadId ? `/player/${status.leadId}` : '/house';
+
   return (
     <section
       className="fleet-bar-panel house-remote"
       aria-labelledby="fleet-actions-heading"
       data-idle={status.isIdle ? 'true' : 'false'}
+      data-art={showArt ? 'true' : 'false'}
+      data-dominant={status.hasDominantStream ? 'true' : 'false'}
     >
-      <div className="house-remote-head">
-        <div className="house-remote-title-row">
-          <h2 id="fleet-actions-heading">
-            <Link to="/house" className="house-remote-title-link">
-              House remote
+      <div className="house-remote-body">
+        {showArt ? (
+          <Link
+            to={artHref}
+            className="house-remote-art"
+            aria-label={
+              status.image
+                ? `Now playing artwork — open ${status.primary}`
+                : `Open ${status.primary}`
+            }
+          >
+            {status.image ? (
+              <img
+                key={status.image}
+                src={status.image}
+                alt=""
+                className="house-remote-art-img"
+              />
+            ) : (
+              <span className="house-remote-art-empty" aria-hidden="true">
+                <span className="house-remote-art-glyph" />
+              </span>
+            )}
+          </Link>
+        ) : null}
+        <div className="house-remote-head">
+          <div className="house-remote-title-row">
+            <h2 id="fleet-actions-heading">
+              <Link to="/house" className="house-remote-title-link">
+                House remote
+              </Link>
+            </h2>
+            {status.meta.length > 0 ? (
+              <ul className="house-remote-meta" aria-label="House status">
+                {status.meta.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+          <p className="house-remote-primary" title={statusTitle}>
+            <Link to="/house" className="house-remote-status-link">
+              {status.primary}
             </Link>
-          </h2>
-          {status.meta.length > 0 ? (
-            <ul className="house-remote-meta" aria-label="House status">
-              {status.meta.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+          </p>
+          {status.detail ? (
+            <p className="house-remote-detail" title={status.detail}>
+              {status.detail}
+            </p>
           ) : null}
         </div>
-        <p className="house-remote-primary" title={statusTitle}>
-          <Link to="/house" className="house-remote-status-link">
-            {status.primary}
-          </Link>
-        </p>
-        {status.detail ? (
-          <p className="house-remote-detail" title={status.detail}>
-            {status.detail}
-          </p>
-        ) : null}
-        <p className="house-remote-open">
-          <Link to="/house" className="card-meta">
-            Open house →
-          </Link>
-        </p>
       </div>
       <div className="fleet-actions house-remote-actions" role="group" aria-label="House transport">
         <button

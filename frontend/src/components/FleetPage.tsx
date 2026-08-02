@@ -104,7 +104,7 @@ export function FleetPage() {
         <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
           bluesound-dashboard v{APP_VERSION}
         </a>
-        <span className="footer-credit"> · by tbaur</span>
+        <span className="footer-credit"> / by tbaur</span>
       </footer>
 
       {toast && (

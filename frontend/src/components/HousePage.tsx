@@ -9,6 +9,7 @@ import {
   fleetHouseStatus,
   fleetHouseStatusLine,
 } from '@/lib/fleetStatus';
+import { META_SEP } from '@/lib/meta';
 import { useFleetStore } from '@/store/fleetStore';
 import { useLiveFleet } from '@/hooks/useLiveFleet';
 
@@ -175,7 +176,7 @@ export function HousePage() {
               <li key={device.id}>
                 <Link to={`/player/${device.id}`}>
                   <span>{device.name}</span>
-                  <span className="card-meta">{meta.join(' · ')}</span>
+                  <span className="card-meta">{meta.join(META_SEP)}</span>
                 </Link>
               </li>
             );

@@ -88,7 +88,7 @@ a {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
   margin-bottom: 22px;
-  align-items: start;
+  align-items: stretch;
 }
 
 .fleet-bar-volumes {
@@ -143,7 +143,90 @@ a {
 .house-remote {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
+  height: 100%;
+  justify-content: space-between;
+}
+
+.house-remote-body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 14px;
+  align-items: start;
+  min-width: 0;
+}
+
+.house-remote[data-art='true'] .house-remote-body {
+  grid-template-columns: 104px minmax(0, 1fr);
+}
+
+.house-remote-art {
+  position: relative;
+  display: block;
+  width: 104px;
+  height: 104px;
+  border-radius: 12px;
+  overflow: hidden;
+  flex-shrink: 0;
+  background:
+    radial-gradient(120% 80% at 20% 0%, rgba(61, 156, 240, 0.28), transparent 55%),
+    radial-gradient(100% 90% at 90% 100%, rgba(62, 207, 142, 0.14), transparent 50%),
+    rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+  transition: border-color 160ms ease, transform 180ms ease;
+}
+
+.house-remote-art:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  transform: translateY(-1px);
+}
+
+.house-remote-art-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  animation: house-art-in 320ms ease-out;
+}
+
+.house-remote-art-empty {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+}
+
+.house-remote-art-glyph {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--muted) 55%, transparent);
+  box-shadow: inset 0 0 0 6px color-mix(in srgb, var(--muted) 22%, transparent);
+  opacity: 0.85;
+}
+
+@keyframes house-art-in {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .house-remote-art,
+  .house-remote-art-img {
+    animation: none;
+    transition: none;
+  }
+
+  .house-remote-art:hover {
+    transform: none;
+  }
 }
 
 .house-remote-head {
@@ -176,8 +259,8 @@ a {
   color: var(--accent);
 }
 
-.house-remote-open {
-  margin: 4px 0 0;
+.house-remote[data-dominant='false'][data-idle='false'] .house-remote-primary {
+  color: color-mix(in srgb, var(--warn) 72%, var(--text));
 }
 
 .house-room-list {
@@ -221,8 +304,8 @@ a {
 }
 
 .house-remote-meta li:not(:last-child)::after {
-  content: '·';
-  margin: 0 0.45em;
+  content: '/';
+  margin: 0 0.4em;
   opacity: 0.7;
 }
 
@@ -252,6 +335,13 @@ a {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.house-remote[data-art='true'] .house-remote-detail {
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
 }
 
 .house-remote-actions {

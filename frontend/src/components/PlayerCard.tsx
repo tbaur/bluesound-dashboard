@@ -8,6 +8,7 @@ import {
   formatDeviceHardware,
   formatDeviceHost,
 } from '@/lib/endpoint';
+import { joinMeta } from '@/lib/meta';
 import { useFleetStore } from '@/store/fleetStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -31,7 +32,7 @@ function nowPlaying(device: PlayerStatus): { primary: string; secondary: string;
     };
   }
   const primary = device.track || (isPlaying(device.state) ? 'Playing' : 'Paused');
-  const secondary = [device.artist, device.service].filter(Boolean).join(' · ');
+  const secondary = joinMeta(device.artist, device.service);
   return { primary, secondary, idle: false };
 }
 

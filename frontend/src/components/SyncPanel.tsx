@@ -236,7 +236,7 @@ export function SyncPanel() {
                   {group.primary_name}
                   <span className="sync-group-label-muted">
                     {' '}
-                    · lead · {roomCountLabel(followerCount + 1)}
+                    {' / '}lead{' / '}{roomCountLabel(followerCount + 1)}
                   </span>
                 </p>
                 <div className="sync-actions">
@@ -317,7 +317,7 @@ export function SyncPanel() {
                 {groups.length === 0 ? 'Start a group' : 'Start another group'}
                 <span className="sync-group-label-muted">
                   {' '}
-                  · {leadId ? 'pick rooms to follow' : 'choose the lead room'}
+                  {' / '}{leadId ? 'pick rooms to follow' : 'choose the lead room'}
                 </span>
               </p>
               {groups.length > 0 ? (
@@ -394,7 +394,7 @@ export function SyncPanel() {
               {roomCountLabel(freeRooms.length)} not linked
               {canStartSeparate ? (
                 <>
-                  {' · '}
+                  {' / '}
                   <button
                     type="button"
                     className="sync-text-btn"
@@ -405,7 +405,7 @@ export function SyncPanel() {
                   </button>
                 </>
               ) : (
-                <> · use Add rooms above to join a set</>
+                <>{' / '}use Add rooms above to join a set</>
               )}
             </p>
           ) : (

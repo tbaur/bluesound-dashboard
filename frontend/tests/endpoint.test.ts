@@ -9,14 +9,14 @@ describe('formatDeviceHardware', () => {
         model: 'CI S2',
         zone: 1,
       }),
-    ).toBe('NAD CI S2 · Zone 1');
+    ).toBe('NAD CI S2 / Zone 1');
     expect(
       formatDeviceHardware({
         full_model: 'NAD CI S2',
         model: 'CI S2',
         zone: 2,
       }),
-    ).toBe('NAD CI S2 · Zone 2');
+    ).toBe('NAD CI S2 / Zone 2');
   });
 
   it('keeps ordinary players unlabeled', () => {
