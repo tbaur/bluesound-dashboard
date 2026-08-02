@@ -116,13 +116,21 @@ class DiscoveryService:
         return None
 
     def cache_fresh(self) -> bool:
+        """True when the last discovery result (including empty) is still within TTL.
+
+        Empty fleets use ``empty_fleet_rediscovery_seconds`` so API/REST-fallback
+        paths do not re-run a full mDNS+LSDP window on every request.
+        """
         if self._snapshot.discovered_at is None:
             return False
-        return (time.time() - self._snapshot.discovered_at) < self.settings.discovery_cache_ttl
+        age = time.time() - self._snapshot.discovered_at
+        if not self._snapshot.devices:
+            return age < self.settings.empty_fleet_rediscovery_seconds
+        return age < self.settings.discovery_cache_ttl
 
     async def get_devices(self, *, force: bool = False) -> DiscoverySnapshot:
         async with self._data_lock:
-            if not force and self.cache_fresh() and self._snapshot.devices:
+            if not force and self.cache_fresh():
                 return self._snapshot
         return await self._refresh(force=force)
 
@@ -134,7 +142,7 @@ class DiscoveryService:
         """Discover + enrich outside the data lock; swap snapshot atomically."""
         async with self._refresh_lock:
             async with self._data_lock:
-                if not force and self.cache_fresh() and self._snapshot.devices:
+                if not force and self.cache_fresh():
                     return self._snapshot
                 previous_ids = set(self._snapshot.endpoints_by_id)
                 previous_endpoints = dict(self._snapshot.endpoints_by_id)

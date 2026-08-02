@@ -2,10 +2,19 @@ import { useEffect, useRef } from 'react';
 import type { PlayerStatus, SyncState } from '@/api/types';
 import { useFleetStore } from '@/store/fleetStore';
 import { api } from '@/api/client';
+import { apiToken } from '@/api/auth';
 
 interface FleetEvent {
   type: string;
   data: unknown;
+}
+
+const MAX_RECONNECT_ATTEMPTS = 8;
+const OFFLINE_RETRY_MS = 60_000;
+
+function eventsUrl(): string {
+  if (!apiToken) return '/api/v1/events';
+  return `/api/v1/events?token=${encodeURIComponent(apiToken)}`;
 }
 
 function connectWithBackoff(
@@ -27,7 +36,7 @@ function connectWithBackoff(
   const open = () => {
     if (signal.aborted) return;
     onState(attempt === 0 ? 'connecting' : 'reconnecting');
-    source = new EventSource('/api/v1/events');
+    source = new EventSource(eventsUrl());
     source.onopen = () => {
       attempt = 0;
       onState('live');
@@ -41,9 +50,16 @@ function connectWithBackoff(
     };
     source.onerror = () => {
       source?.close();
-      onState('reconnecting');
-      const delay = Math.min(30_000, 1000 * 2 ** attempt) + Math.random() * 250;
       attempt += 1;
+      if (attempt >= MAX_RECONNECT_ATTEMPTS) {
+        onState('offline');
+        // Keep REST fallback running; retry SSE periodically instead of giving up.
+        attempt = 0;
+        timer = window.setTimeout(open, OFFLINE_RETRY_MS);
+        return;
+      }
+      onState('reconnecting');
+      const delay = Math.min(30_000, 1000 * 2 ** (attempt - 1)) + Math.random() * 250;
       timer = window.setTimeout(open, delay);
     };
   };

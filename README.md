@@ -14,7 +14,7 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 ## Features
 
 - **Discovery** on page load, on demand, and automatic re-scan when the fleet is empty — mDNS browses `_musc` and `_musp` (CI secondary zones as `ip:port`)
-- **Live fleet** via server-side poller + SSE (REST fallback when SSE reconnects)
+- **Live fleet** via server-side poller + SSE (REST fallback while reconnecting; after prolonged SSE failure, Offline pill + 5s REST poll with SSE retry every 60s)
 - **Playback** play / pause / stop / skip / back / toggle
 - **Volume** absolute level, relative adjust (+/−), mute (per-player and house-wide); residential **Global volume** and **CI S2 volume** are separate controls (different amp scales)
 - **House remote** fleet mute / pause / stop; when one clear house stream dominates, shows track, service, format/bitrate, and album art
@@ -36,10 +36,10 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 
 ```bash
 make install   # backend venv + frontend deps
-make run       # API then UI
+make run       # API then UI (fails if :8000/:8765 busy; BSD_FORCE_FREE_PORTS=1 to reclaim)
 ```
 
-Open http://127.0.0.1:8765/ (API listens on http://127.0.0.1:8000/).
+Open http://127.0.0.1:8765/ (API listens on http://127.0.0.1:8000/). For LAN binds, set `BSD_API_TOKEN` in the repo-root `.env` and the same value as `VITE_API_TOKEN` in `frontend/.env` (Vite does not read the repo-root file) — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 Full setup and checks: [CONTRIBUTING.md](CONTRIBUTING.md). Ops details: [docs/RUNBOOK.md](docs/RUNBOOK.md). Configuration: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) (copy [.env.example](.env.example) to the repo root when needed).
 

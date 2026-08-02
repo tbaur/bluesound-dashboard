@@ -42,11 +42,15 @@ _MAX_REDIRECTS = 5
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
+_RATE_LIMITER_MAX_KEYS = 512
+
+
 class RateLimiter:
-    def __init__(self, min_interval: float) -> None:
+    def __init__(self, min_interval: float, *, max_keys: int = _RATE_LIMITER_MAX_KEYS) -> None:
         self._min_interval = min_interval
         self._last: dict[str, float] = {}
         self._lock = asyncio.Lock()
+        self._max_keys = max_keys
 
     async def wait(self, key: str) -> None:
         """Per-key spacing without holding the lock across sleep."""
@@ -59,8 +63,18 @@ class RateLimiter:
                 delay = self._min_interval - (now - last)
                 if delay <= 0:
                     self._last[key] = now
+                    self._prune_unlocked(now)
                     return
             await asyncio.sleep(delay)
+
+    def _prune_unlocked(self, now: float) -> None:
+        if len(self._last) <= self._max_keys:
+            return
+        # Drop oldest half when over cap (long-uptime safety).
+        ordered = sorted(self._last.items(), key=lambda item: item[1])
+        drop = len(ordered) - (self._max_keys // 2)
+        for stale_key, _ts in ordered[:drop]:
+            self._last.pop(stale_key, None)
 
 
 class BluOSClient:
@@ -75,6 +89,9 @@ class BluOSClient:
         )
         self._rate = RateLimiter(settings.control_rate_limit_seconds)
         self._sem = asyncio.Semaphore(settings.max_concurrent_device_calls)
+        # Short-lived settings page cache so unresolved writes do not double-fetch.
+        self._settings_page_cache: dict[tuple[str, str], tuple[float, object]] = {}
+        self._settings_page_cache_ttl = 5.0
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -557,7 +574,8 @@ class BluOSClient:
         if not self.settings.is_allowed_device_ip(sanitized):
             logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
             return False
-        await self._rate.wait(sanitized)
+        # Same keying as BluOS control: ip:port (web UI uses BSD_WEB_UI_PORT).
+        await self._rate.wait(format_endpoint(sanitized, self.settings.web_ui_port))
         url = self._web_ui_url(sanitized, path)
         try:
             async with self._sem:
@@ -738,10 +756,29 @@ class BluOSClient:
         page = (page_id or "").strip().lower()
         if page not in {"audio", "player"}:
             return None
+        resolved = self._resolve_target(ip)
+        cache_key = (
+            format_endpoint(resolved[0], resolved[1]) if resolved else ip,
+            page,
+        )
+        cached = self._settings_page_cache.get(cache_key)
+        if cached is not None:
+            cached_at, payload = cached
+            if time.monotonic() - cached_at < self._settings_page_cache_ttl:
+                return payload if isinstance(payload, DeviceSettingsResponse) else None
         raw = await self._get(ip, "/Settings", query=f"id={page}")
         if not raw:
             return None
-        return self._parse_settings_page(raw, ip, page)
+        parsed = self._parse_settings_page(raw, ip, page)
+        if parsed is not None:
+            self._settings_page_cache[cache_key] = (time.monotonic(), parsed)
+        return parsed
+
+    def _invalidate_settings_cache(self, ip: str) -> None:
+        resolved = self._resolve_target(ip)
+        endpoint = format_endpoint(resolved[0], resolved[1]) if resolved else ip
+        for page in ("audio", "player"):
+            self._settings_page_cache.pop((endpoint, page), None)
 
     async def set_device_setting(
         self, ip: str, setting_id: str, value: str, *, control_path: str = ""
@@ -753,6 +790,7 @@ class BluOSClient:
         path = (control_path or "").strip()
         if not path:
             path = await self._resolve_setting_control_path(ip, sid)
+        ok = False
         if path.startswith("/") and "://" not in path:
             path_only = path.split("?", 1)[0]
             if path_only.lower() == "/name":
@@ -766,13 +804,16 @@ class BluOSClient:
                     query=f"{quote(sid, safe='-_.')}={quote(value, safe=',.-')}",
                     control=True,
                 )
-            if raw is not None:
-                return True
-        return await self._post_web_ui(
-            ip,
-            "/settings",
-            {"playnum": "1", "id": sid, "value": value},
-        )
+            ok = raw is not None
+        if not ok:
+            ok = await self._post_web_ui(
+                ip,
+                "/settings",
+                {"playnum": "1", "id": sid, "value": value},
+            )
+        if ok:
+            self._invalidate_settings_cache(ip)
+        return ok
 
     async def _resolve_setting_control_path(self, ip: str, setting_id: str) -> str:
         for page in ("audio", "player"):

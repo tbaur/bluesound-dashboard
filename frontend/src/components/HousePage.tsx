@@ -11,7 +11,6 @@ import {
 } from '@/lib/fleetStatus';
 import { META_SEP } from '@/lib/meta';
 import { useFleetStore } from '@/store/fleetStore';
-import { useLiveFleet } from '@/hooks/useLiveFleet';
 
 function compareFw(a: string, b: string): number {
   const pa = a.split('.').map((part) => Number.parseInt(part, 10) || 0);
@@ -25,7 +24,6 @@ function compareFw(a: string, b: string): number {
 }
 
 export function HousePage() {
-  useLiveFleet();
   const devices = useFleetStore((s) => s.devices);
   const sync = useFleetStore((s) => s.sync);
   const loading = useFleetStore((s) => s.loading);
@@ -69,8 +67,11 @@ export function HousePage() {
   const breakAll = async () => {
     holdSync(8000);
     try {
-      await api.syncBreak();
+      const result = await api.syncBreak();
       await reloadStatus();
+      if (result.failed > 0) {
+        setToast(`Ungrouped ${result.succeeded}; ${result.failed} failed`);
+      }
     } catch (err) {
       setToast(
         err instanceof ApiError ? `${err.message} (${err.requestId})` : 'Break all failed',

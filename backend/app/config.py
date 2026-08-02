@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     port: int = Field(default=8000, ge=1, le=65535)
     log_level: str = "INFO"
     cors_origins: str = "http://127.0.0.1:8765,http://localhost:8765"
+    # When non-empty, require Bearer / X-API-Token (or ?token= for EventSource).
+    api_token: str = ""
+    # Comma-separated client IPs allowed to supply X-Forwarded-For for API rate limits.
+    trusted_proxies: str = ""
 
     discovery_method: DiscoveryMethod = "both"
     discovery_timeout: float = Field(default=5.0, ge=1.0, le=60.0)
@@ -53,6 +57,8 @@ class Settings(BaseSettings):
     circuit_slow_poll_seconds: float = Field(default=15.0, ge=3.0, le=300.0)
     discovered_grace_ttl: float = Field(default=60.0, ge=0.0, le=600.0)
     sse_keepalive_seconds: float = Field(default=15.0, ge=0.1, le=120.0)
+    sse_queue_size: int = Field(default=32, ge=1, le=1000)
+    fleet_upgrades_cache_seconds: float = Field(default=30.0, ge=0.0, le=600.0)
 
     max_xml_size: int = Field(default=1_048_576, ge=1024, le=10_485_760)
     max_xml_depth: int = Field(default=20, ge=2, le=100)
@@ -89,6 +95,9 @@ class Settings(BaseSettings):
 
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]
+
+    def trusted_proxy_set(self) -> set[str]:
+        return {o.strip() for o in self.trusted_proxies.split(",") if o.strip()}
 
     def openapi_enabled(self) -> bool:
         if self.enable_openapi is not None:

@@ -37,13 +37,14 @@ jobs:
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
       - name: Ruff
-        if: matrix.python-version == '3.14'
         run: ruff check app tests
       - name: Mypy
-        if: matrix.python-version == '3.14'
         run: mypy app
       - name: Pytest
-        run: pytest -v --cov=app --cov-report=term-missing --cov-fail-under=90
+        run: pytest -v --cov=app --cov-report=term-missing --cov-report=xml
+      - name: Coverage gate
+        # Separate step: pytest-cov can print FAIL without non-zero exit in some versions.
+        run: coverage report --fail-under=90
 
   frontend:
     name: Frontend

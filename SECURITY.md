@@ -37,7 +37,7 @@ The backend applies:
 - Pydantic input validation and HTTP security headers
 - Dependency auditing via Dependabot (npm, pip, GitHub Actions), CodeQL, and `npm audit` in CI
 
-There is **no application login**. Treat bind address and CORS as the exposure boundary (see [docs/CONFIGURATION.md](docs/CONFIGURATION.md) **Network exposure**).
+There is **no interactive login**. For LAN binds beyond localhost, set optional `BSD_API_TOKEN` (Bearer / `X-API-Token`; SSE may use `?token=`) — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md) **Network exposure**. Otherwise treat bind address and CORS as the exposure boundary.
 
 Details and variable names: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 

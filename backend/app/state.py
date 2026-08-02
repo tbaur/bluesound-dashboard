@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 
 from app.bluos.client import BluOSClient
@@ -21,4 +22,4 @@ class AppState:
     poller: StatusPoller
     fleet_upgrades_cached_at: float = 0.0
     fleet_upgrades_cache: FleetUpgradeResponse | None = None
-    fleet_upgrades_ttl_seconds: float = field(default=30.0)
+    fleet_upgrades_lock: asyncio.Lock = field(default_factory=asyncio.Lock)

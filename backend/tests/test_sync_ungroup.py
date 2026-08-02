@@ -300,7 +300,10 @@ async def test_sync_break_does_not_stop_primary_when_one_slave_remains(
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         response = await http.post("/api/v1/sync/break")
-    assert response.status_code == 502
+    assert response.status_code == 200
+    body = response.json()
+    assert body["succeeded"] == 1
+    assert body["failed"] == 1
     # Freed slave stopped; primary still has a follower so it must not be stopped.
     stopped = [call.args[0] for call in client.stop.await_args_list]
     assert "192.168.1.11:11000" in stopped

@@ -248,9 +248,10 @@ async def test_discovery_cache_grace_and_enrich_error(
     # Failed SyncStatus probes are dropped (not kept as error players).
     assert snap.devices == []
     assert snap.discovered_at is not None
-    # Empty fleets are not served from cache — force rediscovery path runs.
+    # Empty fleets cache for empty_fleet_rediscovery_seconds (avoid discovery storms).
     cached = await service.get_devices()
     assert cached.devices == []
+    assert cached.discovered_at == snap.discovered_at
 
     # update_device appends unknown player
     extra = PlayerStatus(id="extra", ip="192.168.1.30", name="X", status="online")

@@ -5,6 +5,7 @@ import type {
   DeviceSettingsResponse,
   DiagnoseResponse,
   DevicesResponse,
+  FleetActionResponse,
   FleetFirmwareResponse,
   FleetUpgradeResponse,
   PlayerStatus,
@@ -14,6 +15,7 @@ import type {
   UpgradeStatus,
 } from './types';
 import { ApiError } from './types';
+import { apiToken } from './auth';
 
 const BASE = '/api/v1';
 
@@ -40,6 +42,9 @@ async function request<T>(
   if (init?.json !== undefined) {
     headers.set('Content-Type', 'application/json');
     body = JSON.stringify(init.json);
+  }
+  if (apiToken) {
+    headers.set('Authorization', `Bearer ${apiToken}`);
   }
   const rest = { ...(init ?? {}) } as RequestInit & { json?: unknown };
   delete rest.json;
@@ -164,7 +169,7 @@ export const api = {
       method: 'POST',
       json: { master_id: masterId, slave_id: slaveId },
     }),
-  syncBreak: () => request<void>('/sync/break', { method: 'POST' }),
+  syncBreak: () => request<FleetActionResponse>('/sync/break', { method: 'POST' }),
   moveQueueItem: (id: string, fromIndex: number, toIndex: number) =>
     request<void>(`/devices/${id}/queue/move`, {
       method: 'POST',

@@ -15,10 +15,6 @@ vi.mock('@/api/client', () => ({
   },
 }));
 
-vi.mock('@/hooks/useLiveFleet', () => ({
-  useLiveFleet: () => undefined,
-}));
-
 const sample: PlayerStatus = {
   id: 'player-1',
   ip: '192.168.1.10',
@@ -88,7 +84,12 @@ describe('HousePage actions', () => {
       failed: 0,
       results: [],
     });
-    syncBreak.mockResolvedValue(undefined);
+    syncBreak.mockResolvedValue({
+      action: 'sync_break',
+      succeeded: 1,
+      failed: 0,
+      results: [],
+    });
 
     useFleetStore.setState({
       devices: [{ ...sample }, { ...sample, id: 'player-2', name: 'Living', fw: '4.10.0', state: 'play' }],

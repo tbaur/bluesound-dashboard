@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { api } from '@/api/client';
 import type { PlayerStatus, SyncGroup, SyncState } from '@/api/types';
 import { deviceEndpoint } from '@/lib/endpoint';
@@ -80,22 +80,20 @@ export function SyncPanel() {
     [devices, sync, groups],
   );
 
-  const createFollowers = useMemo(
-    () => availableFollowers(devices, sync, groups, leadId),
-    [devices, sync, groups, leadId],
-  );
+  // If SSE/optimistic sync occupies the chosen lead, treat builder as reset (no effect).
+  const leadBlocked = Boolean(leadId && occupiedRoomIds(groups).has(leadId));
+  const activeCreating = creating && !leadBlocked;
+  const activeLeadId = leadBlocked ? '' : leadId;
 
-  useEffect(() => {
-    if (creating && leadId && occupiedRoomIds(groups).has(leadId)) {
-      setCreating(false);
-      setLeadId('');
-    }
-  }, [creating, leadId, groups]);
+  const createFollowers = useMemo(
+    () => availableFollowers(devices, sync, groups, activeLeadId),
+    [devices, sync, groups, activeLeadId],
+  );
 
   if (devices.length < 2) return null;
 
   const canStartGroup = freeRooms.length >= 2;
-  const showBuilder = canStartGroup && (groups.length === 0 || creating);
+  const showBuilder = canStartGroup && (groups.length === 0 || activeCreating);
   const canStartSeparate = canStartGroup && groups.length > 0 && !showBuilder;
   const canUngroupAll = groups.length >= 1;
 
@@ -213,8 +211,13 @@ export function SyncPanel() {
       return;
     }
     void run(groups[0].primary_id, async () => {
-      await api.syncBreak();
+      const result = await api.syncBreak();
       await reloadStatus();
+      if (result.failed > 0) {
+        useFleetStore.getState().setToast(
+          `Ungrouped ${result.succeeded}; ${result.failed} failed`,
+        );
+      }
     }).then(() => {
       setAddingTo(null);
       closeBuilder();
@@ -343,7 +346,7 @@ export function SyncPanel() {
                 {groups.length === 0 ? 'Start a group' : 'Start another group'}
                 <span className="sync-group-label-muted">
                   {' '}
-                  {' / '}{leadId ? 'pick rooms to follow' : 'choose the lead room'}
+                  {' / '}{activeLeadId ? 'pick rooms to follow' : 'choose the lead room'}
                 </span>
               </p>
               {groups.length > 0 ? (
@@ -361,7 +364,7 @@ export function SyncPanel() {
             </div>
 
             <div className="sync-chain">
-              {!leadId ? (
+              {!activeLeadId ? (
                 freeRooms.map((d) => (
                   <button
                     key={d.id}
@@ -382,7 +385,7 @@ export function SyncPanel() {
                     title="Change lead room"
                     onClick={() => setLeadId('')}
                   >
-                    {byId[leadId]?.name ?? 'Lead'}
+                    {byId[activeLeadId]?.name ?? 'Lead'}
                   </button>
                   <span className="sync-arrow" aria-hidden="true">
                     →
@@ -397,7 +400,7 @@ export function SyncPanel() {
                           type="button"
                           className="sync-chip sync-chip-choice"
                           disabled={busy}
-                          onClick={() => addFollower(leadId, d.id, true)}
+                          onClick={() => addFollower(activeLeadId, d.id, true)}
                         >
                           + {d.name}
                         </button>
@@ -407,7 +410,7 @@ export function SyncPanel() {
                           type="button"
                           className="btn btn-compact"
                           disabled={busy}
-                          onClick={() => groupAllUnder(leadId)}
+                          onClick={() => groupAllUnder(activeLeadId)}
                         >
                           Group all free rooms
                         </button>

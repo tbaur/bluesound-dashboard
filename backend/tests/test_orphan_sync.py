@@ -201,7 +201,11 @@ async def test_sync_break_orphans_via_reparent(
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         response = await http.post("/api/v1/sync/break")
-    assert response.status_code == 204
+    assert response.status_code == 200
+    body = response.json()
+    assert body["action"] == "sync_break"
+    assert body["succeeded"] == 1
+    assert body["failed"] == 0
     client.remove_sync_slave.assert_awaited_once()
     args = client.remove_sync_slave.await_args
     assert args is not None
@@ -276,7 +280,7 @@ async def test_sync_break_donors_exclude_other_group_members(
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         response = await http.post("/api/v1/sync/break")
-    assert response.status_code == 204
+    assert response.status_code == 200
     args = client.remove_sync_slave.await_args
     assert args is not None
     donors = args.kwargs["donor_endpoints"]

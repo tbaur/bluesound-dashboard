@@ -3,8 +3,12 @@ import { FleetPage } from '@/components/FleetPage';
 import { HousePage } from '@/components/HousePage';
 import { PlayerDetailPage } from '@/components/PlayerDetailPage';
 import { ScrollToTop } from '@/components/ScrollToTop';
+import { useLiveFleet } from '@/hooks/useLiveFleet';
 
 export function App() {
+  // One SSE connection for the whole SPA — pages must not remount EventSource.
+  useLiveFleet();
+
   return (
     <>
       <ScrollToTop />

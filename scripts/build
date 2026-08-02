@@ -29,4 +29,5 @@ log "frontend: npm run build"
   npm run build
 )
 
-log "done — UI at frontend/dist (set BSD_STATIC_DIR=frontend/dist for single-process serve)"
+log "done — UI at frontend/dist"
+log "single-process: cd backend && BSD_STATIC_DIR=../frontend/dist .venv/bin/uvicorn app.main:app"

@@ -25,10 +25,6 @@ vi.mock('@/api/client', () => ({
   },
 }));
 
-vi.mock('@/hooks/useLiveFleet', () => ({
-  useLiveFleet: () => undefined,
-}));
-
 vi.mock('@/components/DeviceSettingsPanel', () => ({
   DeviceSettingsPanel: () => <div data-testid="settings-panel" />,
 }));

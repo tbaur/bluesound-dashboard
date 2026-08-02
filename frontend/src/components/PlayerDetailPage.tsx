@@ -13,7 +13,6 @@ import {
 import { META_SEP, joinMeta } from '@/lib/meta';
 import { streamQualityLabel } from '@/lib/streamQuality';
 import { useFleetStore } from '@/store/fleetStore';
-import { useLiveFleet } from '@/hooks/useLiveFleet';
 
 function formatClock(totalSeconds: number): string {
   const secs = Math.max(0, Math.floor(totalSeconds));
@@ -78,7 +77,6 @@ function syncSummary(
 }
 
 export function PlayerDetailPage() {
-  useLiveFleet();
   const { id = '' } = useParams();
   const device = useFleetStore((s) => s.devices.find((d) => d.id === id));
   const devices = useFleetStore((s) => s.devices);
@@ -165,7 +163,7 @@ export function PlayerDetailPage() {
 
   useEffect(() => {
     if (device) nudgeBaseline.current = device.volume;
-  }, [device?.id, device?.volume]);
+  }, [device]);
 
   useEffect(
     () => () => {

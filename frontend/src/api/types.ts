@@ -185,6 +185,19 @@ export interface FleetFirmwareResponse {
   devices: FirmwareEntry[];
 }
 
+export interface FleetActionResult {
+  device_id: string;
+  name: string;
+  ok: boolean;
+}
+
+export interface FleetActionResponse {
+  action: string;
+  succeeded: number;
+  failed: number;
+  results: FleetActionResult[];
+}
+
 export interface ApiErrorBody {
   error: string;
   message: string;

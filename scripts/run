@@ -11,6 +11,8 @@ UI_PORT=8765
 HEALTH_URL="http://${API_HOST}:${API_PORT}/api/v1/healthz"
 API_PID=""
 UI_PID=""
+# Set BSD_FORCE_FREE_PORTS=1 to kill listeners on :8000/:8765 (default: fail if busy).
+FORCE_FREE="${BSD_FORCE_FREE_PORTS:-0}"
 
 log() { printf '[run] %s\n' "$*"; }
 
@@ -28,21 +30,31 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-free_port() {
+port_pids() {
+  lsof -nP -t -iTCP:"$1" -sTCP:LISTEN 2>/dev/null || true
+}
+
+ensure_port_free() {
   local port="$1"
   local pids
-  pids="$(lsof -nP -t -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)"
+  pids="$(port_pids "${port}")"
+  if [[ -z "${pids}" ]]; then
+    return 0
+  fi
+  if [[ "${FORCE_FREE}" != "1" ]]; then
+    log "port :${port} already in use (pids ${pids})"
+    log "stop that process, pick another port, or set BSD_FORCE_FREE_PORTS=1 to kill it"
+    exit 1
+  fi
+  log "BSD_FORCE_FREE_PORTS=1 — freeing :${port} (pids ${pids})"
+  # shellcheck disable=SC2086
+  kill ${pids} 2>/dev/null || true
+  sleep 0.4
+  pids="$(port_pids "${port}")"
   if [[ -n "${pids}" ]]; then
-    log "freeing :${port} (pids ${pids})"
     # shellcheck disable=SC2086
-    kill ${pids} 2>/dev/null || true
-    sleep 0.4
-    pids="$(lsof -nP -t -iTCP:"${port}" -sTCP:LISTEN 2>/dev/null || true)"
-    if [[ -n "${pids}" ]]; then
-      # shellcheck disable=SC2086
-      kill -9 ${pids} 2>/dev/null || true
-      sleep 0.2
-    fi
+    kill -9 ${pids} 2>/dev/null || true
+    sleep 0.2
   fi
 }
 
@@ -74,8 +86,8 @@ if [[ ! -d "${ROOT}/frontend/node_modules" ]]; then
   exit 1
 fi
 
-free_port "${API_PORT}"
-free_port "${UI_PORT}"
+ensure_port_free "${API_PORT}"
+ensure_port_free "${UI_PORT}"
 
 log "starting API on ${API_HOST}:${API_PORT}"
 (

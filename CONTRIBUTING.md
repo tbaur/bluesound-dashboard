@@ -96,7 +96,8 @@ Opens the UI at http://127.0.0.1:8765/ after the API is healthy on `:8000`. For 
 cd backend
 ruff check app tests
 mypy app
-pytest  # requires ≥90% coverage (`--cov-fail-under=90`)
+pytest --cov=app --cov-report=term-missing
+coverage report --fail-under=90  # CI aggregate gate (total ≥90%; individual modules may be lower)
 
 # Frontend
 cd frontend

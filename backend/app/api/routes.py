@@ -220,6 +220,7 @@ async def refresh_devices(state: StateDep) -> DevicesResponse:
         {
             "devices": [d.model_dump() for d in snapshot.devices],
             "discovered_at": snapshot.discovered_at,
+            "sync": build_sync_state(snapshot.devices).model_dump(),
         },
     )
     return DevicesResponse(
@@ -236,7 +237,9 @@ async def set_fleet_volume(body: VolumeRequest, state: StateDep) -> FleetVolumeR
     if not snapshot.devices:
         raise AppError(404, "no_devices", "No discovered devices to control")
 
-    if body.device_ids:
+    if body.device_ids is not None:
+        if not body.device_ids:
+            raise AppError(400, "empty_device_ids", "device_ids must be omitted or non-empty")
         wanted = set(body.device_ids)
         for device_id in wanted:
             if not validate_device_id(device_id):
@@ -571,51 +574,30 @@ async def fleet_firmware(state: StateDep) -> FleetFirmwareResponse:
 
 @router.get("/fleet/upgrades", response_model=FleetUpgradeResponse)
 async def fleet_upgrades(state: StateDep) -> FleetUpgradeResponse:
-    now = time.monotonic()
-    cached = state.fleet_upgrades_cache
-    if (
-        cached is not None
-        and (now - state.fleet_upgrades_cached_at) < state.fleet_upgrades_ttl_seconds
-    ):
-        return cached
+    async with state.fleet_upgrades_lock:
+        now = time.monotonic()
+        cached = state.fleet_upgrades_cache
+        if (
+            cached is not None
+            and (now - state.fleet_upgrades_cached_at)
+            < state.settings.fleet_upgrades_cache_seconds
+        ):
+            return cached
 
-    snapshot = await state.discovery.get_devices()
-    if not snapshot.devices:
-        empty = FleetUpgradeResponse(updates_available=0, checked=0, failed=0, results=[])
-        state.fleet_upgrades_cache = empty
-        state.fleet_upgrades_cached_at = now
-        return empty
+        snapshot = await state.discovery.get_devices()
+        if not snapshot.devices:
+            empty = FleetUpgradeResponse(updates_available=0, checked=0, failed=0, results=[])
+            state.fleet_upgrades_cache = empty
+            state.fleet_upgrades_cached_at = now
+            return empty
 
-    # Upgrade status is chassis web-UI scoped; probe once per IP, then fan out
-    # so secondary CI zones share the same result without duplicate HTTP calls.
-    chassis = _chassis_representatives(snapshot.devices)
+        # Upgrade status is chassis web-UI scoped; probe once per IP, then fan out
+        # so secondary CI zones share the same result without duplicate HTTP calls.
+        chassis = _chassis_representatives(snapshot.devices)
 
-    async def probe(device: PlayerStatus) -> UpgradeStatus:
-        if not state.settings.is_allowed_device_ip(device.ip):
-            return UpgradeStatus(
-                device_id=device.id,
-                name=device.name,
-                ip=device.ip,
-                current_fw=device.fw,
-                update_available=False,
-                message="IP not allowed",
-                ok=False,
-            )
-        return await state.client.get_upgrade_status(
-            device.ip,
-            device_id=device.id,
-            name=device.name,
-            current_fw=device.fw,
-        )
-
-    probed = list(await asyncio.gather(*(probe(d) for d in chassis)))
-    by_ip = {status.ip: status for status in probed}
-    results: list[UpgradeStatus] = []
-    for device in snapshot.devices:
-        base = by_ip.get(device.ip)
-        if base is None:
-            results.append(
-                UpgradeStatus(
+        async def probe(device: PlayerStatus) -> UpgradeStatus:
+            if not state.settings.is_allowed_device_ip(device.ip):
+                return UpgradeStatus(
                     device_id=device.id,
                     name=device.name,
                     ip=device.ip,
@@ -624,28 +606,51 @@ async def fleet_upgrades(state: StateDep) -> FleetUpgradeResponse:
                     message="IP not allowed",
                     ok=False,
                 )
+            return await state.client.get_upgrade_status(
+                device.ip,
+                device_id=device.id,
+                name=device.name,
+                current_fw=device.fw,
             )
-            continue
-        results.append(
-            base.model_copy(
-                update={
-                    "device_id": device.id,
-                    "name": device.name,
-                    "current_fw": device.fw or base.current_fw,
-                }
+
+        probed = list(await asyncio.gather(*(probe(d) for d in chassis)))
+        by_ip = {status.ip: status for status in probed}
+        results: list[UpgradeStatus] = []
+        for device in snapshot.devices:
+            base = by_ip.get(device.ip)
+            if base is None:
+                results.append(
+                    UpgradeStatus(
+                        device_id=device.id,
+                        name=device.name,
+                        ip=device.ip,
+                        current_fw=device.fw,
+                        update_available=False,
+                        message="IP not allowed",
+                        ok=False,
+                    )
+                )
+                continue
+            results.append(
+                base.model_copy(
+                    update={
+                        "device_id": device.id,
+                        "name": device.name,
+                        "current_fw": device.fw or base.current_fw,
+                    }
+                )
             )
+        failed = sum(1 for r in results if not r.ok)
+        updates = sum(1 for r in results if r.ok and r.update_available)
+        response = FleetUpgradeResponse(
+            updates_available=updates,
+            checked=len(results) - failed,
+            failed=failed,
+            results=results,
         )
-    failed = sum(1 for r in results if not r.ok)
-    updates = sum(1 for r in results if r.ok and r.update_available)
-    response = FleetUpgradeResponse(
-        updates_available=updates,
-        checked=len(results) - failed,
-        failed=failed,
-        results=results,
-    )
-    state.fleet_upgrades_cache = response
-    state.fleet_upgrades_cached_at = now
-    return response
+        state.fleet_upgrades_cache = response
+        state.fleet_upgrades_cached_at = now
+        return response
 
 
 @router.post("/devices/{device_id}/reboot", status_code=204)
@@ -758,9 +763,7 @@ async def set_bluetooth(device_id: str, body: BluetoothRequest, state: StateDep)
     if _bluetooth_unsupported_by_model(state, device_id):
         raise AppError(404, "bluetooth_unsupported", "This player does not support Bluetooth")
     info = await state.client.get_bluetooth_info(ip)
-    if info is None:
-        raise AppError(502, "bluos_bluetooth_failed", "Failed to read Bluetooth mode")
-    if not info.supported:
+    if info is None or not info.supported:
         raise AppError(404, "bluetooth_unsupported", "This player does not support Bluetooth")
 
     async def op(_: str) -> bool:
@@ -939,17 +942,18 @@ async def sync_remove(body: SyncPairRequest, state: StateDep) -> Response:
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.post("/sync/break", status_code=204)
-async def sync_break(state: StateDep) -> Response:
+@router.post("/sync/break", response_model=FleetActionResponse)
+async def sync_break(state: StateDep) -> FleetActionResponse:
     """Dissolve every sync group without a full LAN rediscovery.
 
     Removes links (including orphans whose primary is offline), stops freed
     players (clears AirPlay capture), then refreshes only the affected devices.
+    Partial success returns succeeded/failed counts (502 only when every link fails).
     """
     logger.info("control_op", extra={"op": "sync_break", "device_id": "-", "device_ip": "-"})
     snapshot = await state.discovery.get_devices()
     sync = build_sync_state(snapshot.devices)
-    failures = 0
+    link_results: list[FleetVolumeResult] = []
     slave_stops: list[tuple[str, str]] = []
     primary_stops: list[tuple[str, str]] = []
     affected: set[str] = set()
@@ -969,6 +973,7 @@ async def sync_break(state: StateDep) -> Response:
             slave_endpoints.append(_require_device(state, slave_id))
         # Do not use siblings in the same break as reparent donors.
         donors = _sync_donor_endpoints(state, master_ip, *slave_endpoints)
+        by_id = {d.id: d for d in snapshot.devices}
 
         async def remove_slave(
             slave_id: str,
@@ -991,8 +996,15 @@ async def sync_break(state: StateDep) -> Response:
             )
         removed_any = False
         for slave_id, ok in zip(group.slave_ids, results, strict=True):
+            slave = by_id.get(slave_id)
+            link_results.append(
+                FleetVolumeResult(
+                    device_id=slave_id,
+                    name=slave.name if slave else slave_id,
+                    ok=ok,
+                )
+            )
             if not ok:
-                failures += 1
                 continue
             removed_any = True
             slave_ip = _require_device(state, slave_id)
@@ -1019,13 +1031,20 @@ async def sync_break(state: StateDep) -> Response:
     await asyncio.gather(*(_stop(did, ip, "primary") for did, ip in primary_stops))
     await asyncio.gather(*(state.poller.refresh_one(device_id) for device_id in affected))
 
-    if failures:
+    succeeded = sum(1 for r in link_results if r.ok)
+    failures = sum(1 for r in link_results if not r.ok)
+    if failures and succeeded == 0 and link_results:
         logger.warning(
             "control_failed",
             extra={"op": "sync_break", "device_id": "-", "device_ip": "-"},
         )
         raise AppError(502, "sync_break_failed", f"Failed to remove {failures} sync link(s)")
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    return FleetActionResponse(
+        action="sync_break",
+        succeeded=succeeded,
+        failed=failures,
+        results=link_results,
+    )
 
 
 @router.get("/events")

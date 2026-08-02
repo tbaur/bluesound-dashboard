@@ -72,7 +72,12 @@ describe('SyncPanel', () => {
       results: [],
     });
     syncAdd.mockResolvedValue(undefined);
-    syncBreak.mockResolvedValue(undefined);
+    syncBreak.mockResolvedValue({
+      action: 'sync_break',
+      succeeded: 1,
+      failed: 0,
+      results: [],
+    });
     syncRemove.mockResolvedValue(undefined);
 
     const devices = [
