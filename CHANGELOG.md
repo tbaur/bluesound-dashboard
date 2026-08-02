@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.6.0...v0.7.0) (2026-08-02)
+
+
+### Features
+
+* CI zones, house remote, and hardened multi-room sync ([4600f73](https://github.com/tbaur/bluesound-dashboard/commit/4600f73bafde1c6712b3145e702198f771cee680))
+
 ## [0.6.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.5.0...v0.6.0) (2026-08-01)
 
 
