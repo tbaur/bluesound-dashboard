@@ -23,12 +23,18 @@ def test_json_formatter_includes_extras_and_request_id() -> None:
         record.device_id = "player-1"  # type: ignore[attr-defined]
         record.op = "play"  # type: ignore[attr-defined]
         record.succeeded = 2  # type: ignore[attr-defined]
+        record.role = "slave"  # type: ignore[attr-defined]
+        record.target_count = 3  # type: ignore[attr-defined]
+        record.scoped = True  # type: ignore[attr-defined]
         payload = json.loads(JsonFormatter().format(record))
         assert payload["msg"] == "hello"
         assert payload["request_id"] == "req-42"
         assert payload["device_id"] == "player-1"
         assert payload["op"] == "play"
         assert payload["succeeded"] == 2
+        assert payload["role"] == "slave"
+        assert payload["target_count"] == 3
+        assert payload["scoped"] is True
     finally:
         request_id_var.reset(token)
 

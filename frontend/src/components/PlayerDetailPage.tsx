@@ -4,9 +4,15 @@ import { api } from '@/api/client';
 import type { AudioInput, DiagnoseResponse, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
 import { DeviceSettingsPanel } from '@/components/DeviceSettingsPanel';
 import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
-import { deviceEndpoint, endpointsMatch, formatDeviceHost } from '@/lib/endpoint';
+import {
+  deviceEndpoint,
+  endpointsMatch,
+  formatDeviceHardware,
+  formatDeviceHost,
+} from '@/lib/endpoint';
+import { META_SEP, joinMeta } from '@/lib/meta';
+import { streamQualityLabel } from '@/lib/streamQuality';
 import { useFleetStore } from '@/store/fleetStore';
-import { useLiveFleet } from '@/hooks/useLiveFleet';
 
 function formatClock(totalSeconds: number): string {
   const secs = Math.max(0, Math.floor(totalSeconds));
@@ -52,15 +58,6 @@ function TrackProgress({
   );
 }
 
-function qualityLabel(quality: string, streamFormat: string): string {
-  const parts: string[] = [];
-  if (streamFormat) parts.push(streamFormat);
-  if (quality) {
-    if (/^\d+$/.test(quality)) parts.push(`${quality} kbps`);
-    else parts.push(quality.toUpperCase());
-  }
-  return parts.join(' · ');
-}
 
 function syncSummary(
   device: { sync_role: string; group: string; slaves: string[] },
@@ -80,7 +77,6 @@ function syncSummary(
 }
 
 export function PlayerDetailPage() {
-  useLiveFleet();
   const { id = '' } = useParams();
   const device = useFleetStore((s) => s.devices.find((d) => d.id === id));
   const devices = useFleetStore((s) => s.devices);
@@ -90,11 +86,13 @@ export function PlayerDetailPage() {
   const toast = useFleetStore((s) => s.toast);
   const setToast = useFleetStore((s) => s.setToast);
   const volumeCommitTimer = useRef<number | undefined>(undefined);
+  const nudgeBaseline = useRef(device?.volume ?? 0);
 
   const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [inputs, setInputs] = useState<AudioInput[]>([]);
   const [presets, setPresets] = useState<Preset[]>([]);
   const [bluetooth, setBluetooth] = useState('');
+  const [bluetoothSupported, setBluetoothSupported] = useState(false);
   const [diag, setDiag] = useState<DiagnoseResponse | null>(null);
   const [upgrade, setUpgrade] = useState<UpgradeStatus | null>(null);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
@@ -121,8 +119,13 @@ export function PlayerDetailPage() {
       else failures.push('inputs');
       if (p.status === 'fulfilled') setPresets(p.value);
       else failures.push('presets');
-      if (b.status === 'fulfilled') setBluetooth(b.value.mode);
-      else failures.push('bluetooth');
+      if (b.status === 'fulfilled') {
+        setBluetoothSupported(b.value.supported);
+        setBluetooth(b.value.supported ? (b.value.mode ?? '') : '');
+      } else {
+        setBluetoothSupported(false);
+        failures.push('bluetooth');
+      }
       if (d.status === 'fulfilled') setDiag(d.value);
       else failures.push('diagnostics');
       setDetailError(failures.length ? `Failed to load: ${failures.join(', ')}` : null);
@@ -158,6 +161,10 @@ export function PlayerDetailPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (device) nudgeBaseline.current = device.volume;
+  }, [device]);
+
   useEffect(
     () => () => {
       if (volumeCommitTimer.current) window.clearTimeout(volumeCommitTimer.current);
@@ -170,11 +177,23 @@ export function PlayerDetailPage() {
     const deviceId = device.id;
     useFleetStore.getState().holdVolume(deviceId);
     patchDevice(deviceId, { volume: level });
+    nudgeBaseline.current = level;
     if (volumeCommitTimer.current) window.clearTimeout(volumeCommitTimer.current);
     volumeCommitTimer.current = window.setTimeout(() => {
       volumeCommitTimer.current = undefined;
       void control(deviceId, () => api.setVolume(deviceId, level), { volume: level });
     }, 80);
+  };
+
+  const nudgeDeviceVolume = (level: number) => {
+    if (!device) return;
+    const deviceId = device.id;
+    const delta = level - nudgeBaseline.current;
+    if (delta === 0) return;
+    nudgeBaseline.current = level;
+    useFleetStore.getState().holdVolume(deviceId);
+    patchDevice(deviceId, { volume: level });
+    void control(deviceId, () => api.adjustVolume(deviceId, delta), { volume: level });
   };
 
   if (!device) {
@@ -206,7 +225,7 @@ export function PlayerDetailPage() {
           : device.state || 'Idle';
   const activeInput = inputs.find((input) => input.selected);
   const upgradeView = upgrade && upgrade.device_id === id ? upgrade : null;
-  const metaLine = qualityLabel(device.quality, device.stream_format);
+  const metaLine = streamQualityLabel(device.quality, device.stream_format);
 
   return (
     <div className="app-shell dossier">
@@ -217,9 +236,7 @@ export function PlayerDetailPage() {
           </Link>
           <h1 className="brand dossier-title">{device.name}</h1>
           <p className="brand-sub">
-            {[device.full_model || device.model, device.fw ? `fw ${device.fw}` : '']
-              .filter(Boolean)
-              .join(' · ')}
+            {joinMeta(formatDeviceHardware(device), device.fw ? `fw ${device.fw}` : '')}
           </p>
         </div>
         <div className="dossier-header-badges">
@@ -261,18 +278,16 @@ export function PlayerDetailPage() {
             <h2>{nowTitle}</h2>
             {!isIdle && (
               <p className="dossier-now-meta">
-                {[device.artist, device.album].filter(Boolean).join(' · ') || '—'}
+                {joinMeta(device.artist, device.album) || '—'}
               </p>
             )}
             <p className="card-meta">
-              {[
+              {joinMeta(
                 device.service || null,
                 activeInput ? `Input ${activeInput.name}` : null,
                 !isIdle ? metaLine || null : null,
                 !isIdle ? device.state : null,
-              ]
-                .filter(Boolean)
-                .join(' · ')}
+              )}
             </p>
             {device.totlen > 0 && (
               <TrackProgress
@@ -321,8 +336,8 @@ export function PlayerDetailPage() {
             <dt>Volume</dt>
             <dd>
               {device.volume}%
-              {device.db ? ` · ${device.db} dB` : ''}
-              {device.muted ? ' · muted' : ''}
+              {device.db ? `${META_SEP}${device.db} dB` : ''}
+              {device.muted ? `${META_SEP}muted` : ''}
             </dd>
           </div>
           <div>
@@ -344,8 +359,8 @@ export function PlayerDetailPage() {
               <dt>Network</dt>
               <dd>
                 {diag.network_name}
-                {device.ip ? ` · ${formatDeviceHost(device)}` : ''}
-                {device.mac ? ` · ${device.mac}` : ''}
+                {device.ip ? `${META_SEP}${formatDeviceHost(device)}` : ''}
+                {device.mac ? `${META_SEP}${device.mac}` : ''}
               </dd>
             </div>
           ) : (
@@ -353,7 +368,7 @@ export function PlayerDetailPage() {
               <dt>Network</dt>
               <dd>
                 {formatDeviceHost(device)}
-                {device.mac ? ` · ${device.mac}` : ''}
+                {device.mac ? `${META_SEP}${device.mac}` : ''}
               </dd>
             </div>
           )}
@@ -370,9 +385,9 @@ export function PlayerDetailPage() {
               {upgradeView
                 ? upgradeView.ok
                   ? upgradeView.update_available
-                    ? ' · update available'
-                    : ' · up to date'
-                  : ' · check failed'
+                    ? `${META_SEP}update available`
+                    : `${META_SEP}up to date`
+                  : `${META_SEP}check failed`
                 : ''}
             </dd>
           </div>
@@ -392,7 +407,7 @@ export function PlayerDetailPage() {
         <div className="dossier-volume">
           <h3>Device volume</h3>
           <div className="volume-row">
-            <VolumeNudgeButtons value={device.volume} onChange={commitDeviceVolume} />
+            <VolumeNudgeButtons value={device.volume} onChange={nudgeDeviceVolume} />
             <input
               type="range"
               min={0}
@@ -414,7 +429,9 @@ export function PlayerDetailPage() {
         <summary>
           <h2>Advanced</h2>
           <span className="card-meta">
-            queue {queue?.count ?? 0} · inputs {inputs.length} · presets {presets.length}
+            queue {queue?.count ?? 0}
+            {META_SEP}inputs {inputs.length}
+            {META_SEP}presets {presets.length}
           </span>
         </summary>
 
@@ -531,34 +548,38 @@ export function PlayerDetailPage() {
             )}
           </section>
 
-          <section>
-            <h3>Bluetooth</h3>
-            <p className="card-meta">Current mode: {bluetooth || 'Unknown'}</p>
-            <div className="transport" style={{ marginTop: 8 }}>
-              {(
-                [
-                  [0, 'Manual'],
-                  [1, 'Automatic'],
-                  [2, 'Guest'],
-                  [3, 'Disabled'],
-                ] as const
-              ).map(([mode, label]) => (
-                <button
-                  key={mode}
-                  type="button"
-                  className={bluetooth === label ? 'btn btn-primary' : 'btn'}
-                  onClick={() =>
-                    void control(device.id, async () => {
-                      await api.setBluetooth(device.id, mode);
-                      setBluetooth((await api.getBluetooth(device.id)).mode);
-                    })
-                  }
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          </section>
+          {bluetoothSupported ? (
+            <section>
+              <h3>Bluetooth</h3>
+              <p className="card-meta">Current mode: {bluetooth || 'Unknown'}</p>
+              <div className="transport" style={{ marginTop: 8 }}>
+                {(
+                  [
+                    [0, 'Manual'],
+                    [1, 'Automatic'],
+                    [2, 'Guest'],
+                    [3, 'Disabled'],
+                  ] as const
+                ).map(([mode, label]) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    className={bluetooth === label ? 'btn btn-primary' : 'btn'}
+                    onClick={() =>
+                      void control(device.id, async () => {
+                        await api.setBluetooth(device.id, mode);
+                        const next = await api.getBluetooth(device.id);
+                        setBluetoothSupported(next.supported);
+                        setBluetooth(next.supported ? (next.mode ?? '') : '');
+                      })
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : null}
 
           <DeviceSettingsPanel deviceId={device.id} />
 

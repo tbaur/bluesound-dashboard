@@ -22,7 +22,7 @@ Brief description of the changes.
 
 - [ ] Code follows existing style
 - [ ] Self-reviewed the code
-- [ ] Documentation updated if needed
+- [ ] Documentation updated if needed ([README](../README.md) / [CONFIGURATION](../docs/CONFIGURATION.md) / [RUNBOOK](../docs/RUNBOOK.md) / [SECURITY](../SECURITY.md) as applicable — see [CONTRIBUTING](../CONTRIBUTING.md))
 - [ ] PR title uses Conventional Commits (`feat:`, `fix:`, `chore:`, …) — see [RELEASING.md](../RELEASING.md)
 
 ## Related Issues

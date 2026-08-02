@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
+import hashlib
+
 from app.models import PlayerStatus, SyncGroup, SyncRole, SyncState
+from app.validators import DEFAULT_BLUOS_PORT, parse_endpoint
+
+
+def orphan_primary_id(master_endpoint: str) -> str:
+    """Stable synthetic id for a sync group whose primary is off-network."""
+    digest = hashlib.sha256(master_endpoint.encode("utf-8")).hexdigest()[:12]
+    return f"orphan-{digest}"
+
+
+def is_orphan_primary_id(primary_id: str) -> bool:
+    return primary_id.startswith("orphan-")
 
 
 def build_sync_state(devices: list[PlayerStatus]) -> SyncState:
@@ -31,6 +44,33 @@ def build_sync_state(devices: list[PlayerStatus]) -> SyncState:
                 group=device.group,
                 slave_ids=slave_ids,
                 slave_names=slave_names,
+            )
+        )
+
+    # Orphans: still report a master, but that primary is not on the network.
+    # Without this, Break all never sees them and they stay ``reconnecting``.
+    orphans_by_master: dict[str, list[PlayerStatus]] = {}
+    for device in devices:
+        if device.id in in_group:
+            continue
+        master_ep = (device.master or "").strip()
+        if not master_ep or master_ep in by_endpoint:
+            continue
+        orphans_by_master.setdefault(master_ep, []).append(device)
+
+    for master_ep, members in sorted(orphans_by_master.items()):
+        host, _port = parse_endpoint(master_ep, default_port=DEFAULT_BLUOS_PORT)
+        for member in members:
+            in_group.add(member.id)
+        groups.append(
+            SyncGroup(
+                primary_id=orphan_primary_id(master_ep),
+                primary_name="Offline primary",
+                primary_ip=host or master_ep,
+                primary_endpoint=master_ep,
+                group="",
+                slave_ids=[m.id for m in members],
+                slave_names=[m.name for m in members],
             )
         )
 

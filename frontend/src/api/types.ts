@@ -10,6 +10,8 @@ export interface PlayerStatus {
   model: string;
   brand: string;
   full_model: string;
+  /** CI multi-zone index (1-based); omitted/null for ordinary single-zone players. */
+  zone?: number | null;
   device_class: string;
   mac: string;
   status: string;
@@ -72,6 +74,11 @@ export interface Preset {
   image: string;
 }
 
+export interface BluetoothResponse {
+  supported: boolean;
+  mode: string | null;
+}
+
 export interface SyncGroup {
   primary_id: string;
   primary_name: string;
@@ -90,6 +97,8 @@ export interface SyncState {
 export interface DiagnoseResponse {
   device_id: string;
   ip: string;
+  /** BluOS API port (backend always includes; typically 11000). */
+  port: number;
   name: string;
   model: string;
   full_model: string;
@@ -174,6 +183,19 @@ export interface FleetFirmwareResponse {
   unique_versions: string[];
   skew: boolean;
   devices: FirmwareEntry[];
+}
+
+export interface FleetActionResult {
+  device_id: string;
+  name: string;
+  ok: boolean;
+}
+
+export interface FleetActionResponse {
+  action: string;
+  succeeded: number;
+  failed: number;
+  results: FleetActionResult[];
 }
 
 export interface ApiErrorBody {

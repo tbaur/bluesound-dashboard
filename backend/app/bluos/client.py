@@ -12,9 +12,11 @@ from urllib.parse import quote, urljoin, urlparse
 import httpx
 
 from app.bluos.xml import attr, safe_parse_xml, text
+from app.capabilities import infer_zone
 from app.config import Settings
 from app.models import (
     AudioInput,
+    BluetoothResponse,
     DeviceSetting,
     DeviceSettingsResponse,
     PlayerStatus,
@@ -28,6 +30,7 @@ from app.models import (
 from app.validators import (
     format_endpoint,
     make_device_id,
+    normalize_bluos_mac,
     parse_bluos_endpoint,
     parse_endpoint,
     sanitize_ip,
@@ -39,11 +42,15 @@ _MAX_REDIRECTS = 5
 _REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
 
 
+_RATE_LIMITER_MAX_KEYS = 512
+
+
 class RateLimiter:
-    def __init__(self, min_interval: float) -> None:
+    def __init__(self, min_interval: float, *, max_keys: int = _RATE_LIMITER_MAX_KEYS) -> None:
         self._min_interval = min_interval
         self._last: dict[str, float] = {}
         self._lock = asyncio.Lock()
+        self._max_keys = max_keys
 
     async def wait(self, key: str) -> None:
         """Per-key spacing without holding the lock across sleep."""
@@ -56,8 +63,18 @@ class RateLimiter:
                 delay = self._min_interval - (now - last)
                 if delay <= 0:
                     self._last[key] = now
+                    self._prune_unlocked(now)
                     return
             await asyncio.sleep(delay)
+
+    def _prune_unlocked(self, now: float) -> None:
+        if len(self._last) <= self._max_keys:
+            return
+        # Drop oldest half when over cap (long-uptime safety).
+        ordered = sorted(self._last.items(), key=lambda item: item[1])
+        drop = len(ordered) - (self._max_keys // 2)
+        for stale_key, _ts in ordered[:drop]:
+            self._last.pop(stale_key, None)
 
 
 class BluOSClient:
@@ -72,6 +89,9 @@ class BluOSClient:
         )
         self._rate = RateLimiter(settings.control_rate_limit_seconds)
         self._sem = asyncio.Semaphore(settings.max_concurrent_device_calls)
+        # Short-lived settings page cache so unresolved writes do not double-fetch.
+        self._settings_page_cache: dict[tuple[str, str], tuple[float, object]] = {}
+        self._settings_page_cache_ttl = 5.0
 
     async def aclose(self) -> None:
         if self._owns_client:
@@ -308,7 +328,7 @@ class BluOSClient:
             "model_code": attr(root, "model"),
             "brand": attr(root, "brand"),
             "device_class": attr(root, "class"),
-            "mac": attr(root, "mac"),
+            "mac": normalize_bluos_mac(attr(root, "mac")),
             "db": attr(root, "db"),
             "fw": attr(root, "version"),
             "master": master,
@@ -475,6 +495,12 @@ class BluOSClient:
             player.full_model = f"{player.brand} {player.model}".strip()
         else:
             player.full_model = player.model
+        player.zone = infer_zone(
+            player.port,
+            model=player.model,
+            brand=player.brand,
+            full_model=player.full_model,
+        )
         player.status = "online"
         player.last_seen = time.time()
         return player
@@ -548,7 +574,8 @@ class BluOSClient:
         if not self.settings.is_allowed_device_ip(sanitized):
             logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
             return False
-        await self._rate.wait(sanitized)
+        # Same keying as BluOS control: ip:port (web UI uses BSD_WEB_UI_PORT).
+        await self._rate.wait(format_endpoint(sanitized, self.settings.web_ui_port))
         url = self._web_ui_url(sanitized, path)
         try:
             async with self._sem:
@@ -729,10 +756,29 @@ class BluOSClient:
         page = (page_id or "").strip().lower()
         if page not in {"audio", "player"}:
             return None
+        resolved = self._resolve_target(ip)
+        cache_key = (
+            format_endpoint(resolved[0], resolved[1]) if resolved else ip,
+            page,
+        )
+        cached = self._settings_page_cache.get(cache_key)
+        if cached is not None:
+            cached_at, payload = cached
+            if time.monotonic() - cached_at < self._settings_page_cache_ttl:
+                return payload if isinstance(payload, DeviceSettingsResponse) else None
         raw = await self._get(ip, "/Settings", query=f"id={page}")
         if not raw:
             return None
-        return self._parse_settings_page(raw, ip, page)
+        parsed = self._parse_settings_page(raw, ip, page)
+        if parsed is not None:
+            self._settings_page_cache[cache_key] = (time.monotonic(), parsed)
+        return parsed
+
+    def _invalidate_settings_cache(self, ip: str) -> None:
+        resolved = self._resolve_target(ip)
+        endpoint = format_endpoint(resolved[0], resolved[1]) if resolved else ip
+        for page in ("audio", "player"):
+            self._settings_page_cache.pop((endpoint, page), None)
 
     async def set_device_setting(
         self, ip: str, setting_id: str, value: str, *, control_path: str = ""
@@ -744,6 +790,7 @@ class BluOSClient:
         path = (control_path or "").strip()
         if not path:
             path = await self._resolve_setting_control_path(ip, sid)
+        ok = False
         if path.startswith("/") and "://" not in path:
             path_only = path.split("?", 1)[0]
             if path_only.lower() == "/name":
@@ -757,13 +804,16 @@ class BluOSClient:
                     query=f"{quote(sid, safe='-_.')}={quote(value, safe=',.-')}",
                     control=True,
                 )
-            if raw is not None:
-                return True
-        return await self._post_web_ui(
-            ip,
-            "/settings",
-            {"playnum": "1", "id": sid, "value": value},
-        )
+            ok = raw is not None
+        if not ok:
+            ok = await self._post_web_ui(
+                ip,
+                "/settings",
+                {"playnum": "1", "id": sid, "value": value},
+            )
+        if ok:
+            self._invalidate_settings_cache(ip)
+        return ok
 
     async def _resolve_setting_control_path(self, ip: str, setting_id: str) -> str:
         for page in ("audio", "player"):
@@ -948,8 +998,13 @@ class BluOSClient:
             await self._get(ip, "/Play", query=f"inputTypeIndex={encoded}", control=True)
         ) is not None
 
-    async def get_bluetooth_mode(self, ip: str) -> str | None:
-        """Read Bluetooth mode from capture settings (no /AudioModes GET in v1.7)."""
+    async def get_bluetooth_info(self, ip: str) -> BluetoothResponse | None:
+        """Probe Bluetooth from capture settings (no /AudioModes GET in v1.7).
+
+        Returns ``None`` on hard failure (unreachable / unparseable). When capture
+        settings load but omit ``bluetoothAutoplay``, returns ``supported=False``
+        (e.g. NAD CI S2 and other players without a Bluetooth radio).
+        """
         raw = await self._get(ip, "/Settings", query="id=capture&schemaVersion=32")
         if not raw:
             return None
@@ -960,8 +1015,18 @@ class BluOSClient:
             setting_id = setting.get("id") or setting.get("name")
             if setting_id == "bluetoothAutoplay":
                 mode = setting.get("value", "")
-                return self._BT_MODE_MAP.get(mode, "Unknown")
-        return None
+                return BluetoothResponse(
+                    supported=True,
+                    mode=self._BT_MODE_MAP.get(mode, "Unknown"),
+                )
+        return BluetoothResponse(supported=False, mode=None)
+
+    async def get_bluetooth_mode(self, ip: str) -> str | None:
+        """Read Bluetooth mode label, or ``None`` when unsupported / unreachable."""
+        info = await self.get_bluetooth_info(ip)
+        if info is None or not info.supported:
+            return None
+        return info.mode
 
     async def set_bluetooth_mode(self, ip: str, mode: int) -> bool:
         if mode not in (0, 1, 2, 3):
@@ -971,7 +1036,8 @@ class BluOSClient:
         ) is not None
 
     async def get_presets(self, ip: str) -> list[Preset] | None:
-        raw = await self._get(ip, "/Presets", control=True)
+        # Read path: do not burn the control rate slot / single-attempt budget.
+        raw = await self._get(ip, "/Presets", control=False)
         if not raw:
             return None
         root = safe_parse_xml(raw, self.settings, ip)
@@ -993,6 +1059,95 @@ class BluOSClient:
             await self._get(ip, "/Preset", query=f"id={preset_id}", control=True)
         ) is not None
 
+    # Orphan ungroup verification (BluOS may need a short settle after RemoveSlave).
+    _ungroup_verify_attempts = 6
+    _ungroup_verify_delay = 0.25
+
+    def _bluos_response_ok(self, content: bytes | None, context: str = "") -> bool:
+        """True when BluOS returned a non-error XML body (structure-capped parse)."""
+        if not content:
+            return False
+        root = safe_parse_xml(content, self.settings, context or "bluos")
+        if root is None:
+            return False
+        tag = root.tag.lower()
+        if tag == "error" or root.find("error") is not None:
+            return False
+        # Some firmwares wrap errors as <response><error>…</error></response>.
+        if tag.endswith("error"):
+            return False
+        return True
+
+    async def player_is_ungrouped(self, endpoint: str) -> bool | None:
+        """Return True if standalone, False if still has a master, None if unreachable."""
+        resolved = self._resolve_target(endpoint)
+        if not resolved:
+            return None
+        ep = format_endpoint(*resolved)
+        raw = await self._get(ep, "/SyncStatus")
+        if not self._bluos_response_ok(raw, ep):
+            return None
+        assert raw is not None
+        sync = self._parse_sync(raw, ep)
+        return not bool(sync.get("master"))
+
+    async def _wait_until_ungrouped(self, slave_ep: str) -> bool:
+        attempts = max(1, self._ungroup_verify_attempts)
+        delay = max(0.0, self._ungroup_verify_delay)
+        for _ in range(attempts):
+            state = await self.player_is_ungrouped(slave_ep)
+            if state is True:
+                return True
+            if delay:
+                await asyncio.sleep(delay)
+        return (await self.player_is_ungrouped(slave_ep)) is True
+
+    async def _ungroup_via_reparent(
+        self,
+        slave_ep: str,
+        donor_endpoints: list[str],
+    ) -> bool:
+        """Clear orphaned ``master reconnecting`` by briefly attaching to a live donor."""
+        slave = self._resolve_target(slave_ep)
+        if not slave:
+            return False
+        slave_host, slave_port = slave
+        slave_ep = format_endpoint(slave_host, slave_port)
+        remove_query = f"slave={slave_host}&port={slave_port}"
+        legacy_query = f"remove={slave_host}"
+
+        for donor in donor_endpoints:
+            donor_resolved = self._resolve_target(donor)
+            if not donor_resolved:
+                continue
+            donor_ep = format_endpoint(*donor_resolved)
+            if donor_ep == slave_ep:
+                continue
+            if not await self.add_sync_slave(donor_ep, slave_ep):
+                continue
+            for _ in range(3):
+                res = await self._get(
+                    donor_ep,
+                    "/RemoveSlave",
+                    query=remove_query,
+                    control=True,
+                )
+                if self._bluos_response_ok(res, donor_ep) and await self._wait_until_ungrouped(
+                    slave_ep
+                ):
+                    return True
+            logger.error(
+                "reparent_ungroup_failed slave=%s donor=%s",
+                slave_ep,
+                donor_ep,
+            )
+            # Best-effort leave this donor, verify clear, then try the next.
+            await self._get(donor_ep, "/RemoveSlave", query=remove_query, control=True)
+            await self._get(donor_ep, "/Sync", query=legacy_query, control=True)
+            await self._wait_until_ungrouped(slave_ep)
+            continue
+        return False
+
     async def add_sync_slave(self, master_target: str, slave_target: str) -> bool:
         master = self._resolve_target(master_target)
         slave = self._resolve_target(slave_target)
@@ -1007,13 +1162,23 @@ class BluOSClient:
             query=f"slave={slave_ip}&port={slave_port}",
             control=True,
         )
-        if ok is not None:
+        if self._bluos_response_ok(ok, master_ep):
             return True
-        return (
-            await self._get(master_ep, "/Sync", query=f"slave={slave_ip}", control=True)
-        ) is not None
+        legacy = await self._get(master_ep, "/Sync", query=f"slave={slave_ip}", control=True)
+        return self._bluos_response_ok(legacy, master_ep)
 
-    async def remove_sync_slave(self, master_target: str, slave_target: str) -> bool:
+    async def remove_sync_slave(
+        self,
+        master_target: str,
+        slave_target: str,
+        *,
+        donor_endpoints: list[str] | None = None,
+    ) -> bool:
+        """Remove slave from a sync group.
+
+        Prefer ``RemoveSlave`` on the primary. If the primary is offline (orphaned
+        reconnecting group), try the slave, then reparent onto a live donor and remove.
+        """
         master = self._resolve_target(master_target)
         slave = self._resolve_target(slave_target)
         if not master or not slave:
@@ -1021,14 +1186,25 @@ class BluOSClient:
         master_ip, master_port = master
         slave_ip, slave_port = slave
         master_ep = format_endpoint(master_ip, master_port)
-        ok = await self._get(
-            master_ep,
-            "/RemoveSlave",
-            query=f"slave={slave_ip}&port={slave_port}",
-            control=True,
-        )
-        if ok is not None:
+        slave_ep = format_endpoint(slave_ip, slave_port)
+        remove_query = f"slave={slave_ip}&port={slave_port}"
+        legacy_query = f"remove={slave_ip}"
+
+        async def _try_remove(on_ep: str) -> bool:
+            for path, query in (("/RemoveSlave", remove_query), ("/Sync", legacy_query)):
+                res = await self._get(on_ep, path, query=query, control=True)
+                if self._bluos_response_ok(res, on_ep) and await self._wait_until_ungrouped(
+                    slave_ep
+                ):
+                    return True
+            return False
+
+        if await _try_remove(master_ep) or await _try_remove(slave_ep):
             return True
-        return (
-            await self._get(master_ep, "/Sync", query=f"remove={slave_ip}", control=True)
-        ) is not None
+
+        # Dead primary leaves slaves stuck with reconnecting=true; API self-unjoin
+        # returns <error>no slave available as new master</error>.
+        donors = list(donor_endpoints or [])
+        if await self._ungroup_via_reparent(slave_ep, donors):
+            return True
+        return False

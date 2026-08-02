@@ -1,9 +1,11 @@
 import type {
   ApiErrorBody,
   AudioInput,
+  BluetoothResponse,
   DeviceSettingsResponse,
   DiagnoseResponse,
   DevicesResponse,
+  FleetActionResponse,
   FleetFirmwareResponse,
   FleetUpgradeResponse,
   PlayerStatus,
@@ -13,6 +15,7 @@ import type {
   UpgradeStatus,
 } from './types';
 import { ApiError } from './types';
+import { apiToken } from './auth';
 
 const BASE = '/api/v1';
 
@@ -39,6 +42,9 @@ async function request<T>(
   if (init?.json !== undefined) {
     headers.set('Content-Type', 'application/json');
     body = JSON.stringify(init.json);
+  }
+  if (apiToken) {
+    headers.set('Authorization', `Bearer ${apiToken}`);
   }
   const rest = { ...(init ?? {}) } as RequestInit & { json?: unknown };
   delete rest.json;
@@ -84,13 +90,21 @@ export const api = {
     request<void>(`/devices/${id}/reboot`, { method: 'POST', json: { soft } }),
   setVolume: (id: string, level: number) =>
     request<void>(`/devices/${id}/volume`, { method: 'POST', json: { level } }),
-  setFleetVolume: (level: number) =>
-    request<{
+  setFleetVolume: (level: number, deviceIds?: string[]) => {
+    const body =
+      deviceIds === undefined
+        ? { level }
+        : { level, device_ids: deviceIds };
+    return request<{
       level: number;
       succeeded: number;
       failed: number;
       results: { device_id: string; name: string; ok: boolean }[];
-    }>('/fleet/volume', { method: 'POST', json: { level } }),
+    }>('/fleet/volume', {
+      method: 'POST',
+      json: body,
+    });
+  },
   fleetMute: (mute: boolean) =>
     request<{
       action: string;
@@ -127,8 +141,7 @@ export const api = {
   getInputs: (id: string) => request<AudioInput[]>(`/devices/${id}/inputs`),
   setInput: (id: string, input: string) =>
     request<void>(`/devices/${id}/input`, { method: 'POST', json: { input } }),
-  getBluetooth: (id: string) =>
-    request<{ mode: string }>(`/devices/${id}/bluetooth`),
+  getBluetooth: (id: string) => request<BluetoothResponse>(`/devices/${id}/bluetooth`),
   setBluetooth: (id: string, mode: 0 | 1 | 2 | 3) =>
     request<void>(`/devices/${id}/bluetooth`, { method: 'POST', json: { mode } }),
   getPresets: (id: string) => request<Preset[]>(`/devices/${id}/presets`),
@@ -156,7 +169,7 @@ export const api = {
       method: 'POST',
       json: { master_id: masterId, slave_id: slaveId },
     }),
-  syncBreak: () => request<void>('/sync/break', { method: 'POST' }),
+  syncBreak: () => request<FleetActionResponse>('/sync/break', { method: 'POST' }),
   moveQueueItem: (id: string, fromIndex: number, toIndex: number) =>
     request<void>(`/devices/${id}/queue/move`, {
       method: 'POST',

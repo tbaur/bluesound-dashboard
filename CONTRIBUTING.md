@@ -46,8 +46,22 @@ Example: `feat: add multi-room group create`
 
 - [ ] Tests added/updated when behavior changes
 - [ ] Backend and/or frontend checks pass locally
-- [ ] Documentation updated if needed
+- [ ] Documentation updated if needed (see **Keeping docs in sync** below)
 - [ ] Descriptive Conventional Commit PR title
+
+### Keeping docs in sync
+
+When behavior users or operators can see changes, update the matching docs in the same PR:
+
+| Change touches… | Update |
+|-----------------|--------|
+| Features / product surface | [README.md](README.md) Features |
+| `BSD_*` env vars or defaults | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) and [.env.example](.env.example) |
+| Start, health, failures, logs, sync ops | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
+| Supported versions / vuln process | [SECURITY.md](SECURITY.md) |
+| Release process | [RELEASING.md](RELEASING.md) |
+
+`CHANGELOG.md` is owned by [release-please](RELEASING.md) — do not hand-edit it for routine releases. Released version strings live in `.release-please-manifest.json`, `backend/app/__init__.py`, and `frontend/src/version.ts` (also release-please managed).
 
 ## Development setup
 
@@ -82,7 +96,8 @@ Opens the UI at http://127.0.0.1:8765/ after the API is healthy on `:8000`. For 
 cd backend
 ruff check app tests
 mypy app
-pytest  # requires ≥90% coverage (`--cov-fail-under=90`)
+pytest --cov=app --cov-report=term-missing
+coverage report --fail-under=90  # CI aggregate gate (total ≥90%; individual modules may be lower)
 
 # Frontend
 cd frontend
@@ -116,6 +131,7 @@ bluesound-dashboard/
 - Do not hardcode device IPs — discovery owns the fleet.
 - Do not log secrets or full BluOS payloads.
 - Prefer small functions, typed interfaces, and tests for new paths.
+- Prefer slash (` / `) for compact meta separators in the UI (see `frontend/src/lib/meta.ts`) so signed values like dB stay readable.
 
 ## License
 

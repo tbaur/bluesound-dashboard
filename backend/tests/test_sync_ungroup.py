@@ -99,6 +99,7 @@ async def test_sync_remove_stops_slave_and_empty_primary(
     client.remove_sync_slave.assert_awaited_once_with(
         "192.168.1.10:11000",
         "192.168.1.11:11000",
+        donor_endpoints=[],
     )
     assert client.stop.await_count == 2
     stopped = [call.args[0] for call in client.stop.await_args_list]
@@ -226,3 +227,84 @@ async def test_sync_break_does_not_stop_primary_when_all_removals_fail(
         response = await http.post("/api/v1/sync/break")
     assert response.status_code == 502
     client.stop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_sync_break_does_not_stop_primary_when_one_slave_remains(
+    settings: Settings,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Partial break: one RemoveSlave fails → primary still has a follower → no Stop."""
+
+    async def seeded(self: DiscoveryService, *args, **kwargs):
+        return self._snapshot
+
+    monkeypatch.setattr(DiscoveryService, "refresh", seeded)
+    monkeypatch.setattr(DiscoveryService, "get_devices", seeded)
+
+    app = create_app()
+    client = BluOSClient(settings)
+    events = EventBus()
+    discovery = DiscoveryService(settings, client)
+    primary = PlayerStatus(
+        id="primary",
+        ip="192.168.1.10",
+        name="Living",
+        status="online",
+        slaves=["192.168.1.11:11000", "192.168.1.12:11000"],
+        sync_role=SyncRole.PRIMARY,
+    )
+    slave_a = PlayerStatus(
+        id="slave-a",
+        ip="192.168.1.11",
+        name="Kitchen",
+        status="online",
+        master="192.168.1.10:11000",
+        sync_role=SyncRole.SYNCED,
+    )
+    slave_b = PlayerStatus(
+        id="slave-b",
+        ip="192.168.1.12",
+        name="Patio",
+        status="online",
+        master="192.168.1.10:11000",
+        sync_role=SyncRole.SYNCED,
+    )
+    _seed_devices(discovery, [primary, slave_a, slave_b])
+    poller = StatusPoller(settings, discovery, client, events)
+    poller.refresh_one = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    async def remove_side_effect(master: str, slave: str, **kwargs):
+        return slave.endswith("192.168.1.11:11000")
+
+    client.remove_sync_slave = AsyncMock(side_effect=remove_side_effect)  # type: ignore[method-assign]
+    client.stop = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.get_player_status = AsyncMock(  # type: ignore[method-assign]
+        return_value=PlayerStatus(
+            id="primary",
+            ip="192.168.1.10",
+            name="Living",
+            status="online",
+            slaves=["192.168.1.12:11000"],
+            sync_role=SyncRole.PRIMARY,
+        )
+    )
+    app.state.app_state = AppState(
+        settings=settings,
+        client=client,
+        discovery=discovery,
+        events=events,
+        poller=poller,
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        response = await http.post("/api/v1/sync/break")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["succeeded"] == 1
+    assert body["failed"] == 1
+    # Freed slave stopped; primary still has a follower so it must not be stopped.
+    stopped = [call.args[0] for call in client.stop.await_args_list]
+    assert "192.168.1.11:11000" in stopped
+    assert "192.168.1.10:11000" not in stopped

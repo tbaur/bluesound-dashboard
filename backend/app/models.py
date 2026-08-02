@@ -24,6 +24,8 @@ class PlayerStatus(BaseModel):
     model: str = ""
     brand: str = ""
     full_model: str = ""
+    # CI multi-zone index (1-based); None for ordinary single-zone players.
+    zone: int | None = None
     device_class: str = ""
     mac: str = ""
     status: str = "offline"
@@ -62,6 +64,8 @@ class PlayerStatus(BaseModel):
 
 class VolumeRequest(BaseModel):
     level: int = Field(ge=0, le=100)
+    # None → entire fleet; non-empty list → scoped; empty list is rejected by the route.
+    device_ids: list[str] | None = Field(default=None, max_length=256)
 
 
 class VolumeAdjustRequest(BaseModel):
@@ -251,6 +255,13 @@ class InputRequest(BaseModel):
 
 class BluetoothRequest(BaseModel):
     mode: Literal[0, 1, 2, 3]
+
+
+class BluetoothResponse(BaseModel):
+    """Bluetooth mode when supported; ``supported=False`` for players without BT."""
+
+    supported: bool
+    mode: str | None = None
 
 
 class QueueMoveRequest(BaseModel):

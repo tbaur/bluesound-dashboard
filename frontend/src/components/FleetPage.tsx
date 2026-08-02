@@ -3,7 +3,6 @@ import { FleetBar } from '@/components/GlobalVolumeControl';
 import { PlayerRow } from '@/components/PlayerCard';
 import { StatusPills } from '@/components/StatusPills';
 import { SyncPanel } from '@/components/SyncPanel';
-import { useLiveFleet } from '@/hooks/useLiveFleet';
 import {
   fleetSortLabel,
   nextFleetSortMode,
@@ -14,7 +13,6 @@ import { useFleetStore } from '@/store/fleetStore';
 import { APP_VERSION, REPO_URL } from '@/version';
 
 export function FleetPage() {
-  useLiveFleet();
   const devices = useFleetStore((s) => s.devices);
   const loading = useFleetStore((s) => s.loading);
   const refreshing = useFleetStore((s) => s.refreshing);
@@ -104,7 +102,7 @@ export function FleetPage() {
         <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
           bluesound-dashboard v{APP_VERSION}
         </a>
-        <span className="footer-credit"> · by tbaur</span>
+        <span className="footer-credit"> / by tbaur</span>
       </footer>
 
       {toast && (

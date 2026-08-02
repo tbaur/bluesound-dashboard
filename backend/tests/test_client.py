@@ -8,6 +8,7 @@ from app.bluos.client import BluOSClient
 from app.config import Settings
 from tests.fixtures.xml_samples import (
     CAPTURE_SETTINGS,
+    CAPTURE_SETTINGS_NO_BLUETOOTH,
     PRESETS,
     QUEUE,
     STATUS,
@@ -143,8 +144,28 @@ async def test_get_inputs_and_bluetooth_from_capture_settings(settings: Settings
             ("Optical Input", "spdif-1", False),
             ("HDMI ARC", "arc-1", False),
         ]
-        mode = await client.get_bluetooth_mode("192.168.1.20")
-        assert mode == "Disabled"
+        info = await client.get_bluetooth_info("192.168.1.20")
+        assert info is not None
+        assert info.supported is True
+        assert info.mode == "Disabled"
+        assert await client.get_bluetooth_mode("192.168.1.20") == "Disabled"
+    finally:
+        await client.aclose()
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_bluetooth_absent_from_capture_settings(settings: Settings) -> None:
+    respx.get("http://192.168.1.20:11000/Settings").mock(
+        return_value=httpx.Response(200, content=CAPTURE_SETTINGS_NO_BLUETOOTH)
+    )
+    client = BluOSClient(settings)
+    try:
+        info = await client.get_bluetooth_info("192.168.1.20")
+        assert info is not None
+        assert info.supported is False
+        assert info.mode is None
+        assert await client.get_bluetooth_mode("192.168.1.20") is None
     finally:
         await client.aclose()
 
@@ -363,6 +384,12 @@ async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
     remove = respx.get("http://192.168.1.20:11000/RemoveSlave").mock(
         return_value=httpx.Response(200, content=b"<ok/>")
     )
+    respx.get("http://192.168.1.21:11000/SyncStatus").mock(
+        return_value=httpx.Response(
+            200,
+            content=b"<SyncStatus id='192.168.1.21:11000' name='Patio'/>",
+        )
+    )
     volume = respx.get("http://192.168.1.20:11000/Volume").mock(
         return_value=httpx.Response(200, content=b"<ok/>")
     )
@@ -580,10 +607,12 @@ async def test_web_ui_port_override(settings: Settings) -> None:
 @pytest.mark.asyncio
 @respx.mock
 async def test_ci_secondary_zone_status_and_add_slave_port(settings: Settings) -> None:
-    sync = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<SyncStatus name="Zone B" modelName="CI S2" brand="NAD" id="172.16.10.144:11010" volume="10">
-</SyncStatus>
-"""
+    sync = (
+        b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
+        b'<SyncStatus name="Zone B" modelName="CI S2" brand="NAD" '
+        b'id="172.16.10.144:11010" volume="10" mac="90:56:82:16:61:B7:11010">'
+        b"</SyncStatus>"
+    )
     status = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <status><state>stop</state><volume>10</volume></status>
 """
@@ -604,8 +633,10 @@ async def test_ci_secondary_zone_status_and_add_slave_port(settings: Settings) -
         )
         assert player.status == "online"
         assert player.port == 11010
+        assert player.zone == 2
         assert player.endpoint == "172.16.10.144:11010"
         assert player.brand == "NAD"
+        assert player.mac == "90:56:82:16:61:B7"
         assert await client.add_sync_slave(
             "172.16.10.144:11000",
             "172.16.10.144:11010",

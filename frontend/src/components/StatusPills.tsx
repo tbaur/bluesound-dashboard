@@ -54,7 +54,7 @@ export function StatusPills({
       >
         {playersLabel}
         {discovery && !loading ? (
-          <span className="pill-muted"> · via {discovery}</span>
+          <span className="pill-muted"> / via {discovery}</span>
         ) : null}
       </span>
     </div>

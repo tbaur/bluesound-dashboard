@@ -1,7 +1,14 @@
 import { Link } from 'react-router';
 import { api } from '@/api/client';
 import type { PlayerStatus } from '@/api/types';
-import { formatDeviceHost } from '@/lib/endpoint';
+import { isCiS2Device } from '@/lib/deviceGroups';
+import {
+  deviceEndpoint,
+  endpointsMatch,
+  formatDeviceHardware,
+  formatDeviceHost,
+} from '@/lib/endpoint';
+import { joinMeta } from '@/lib/meta';
 import { useFleetStore } from '@/store/fleetStore';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -25,13 +32,13 @@ function nowPlaying(device: PlayerStatus): { primary: string; secondary: string;
     };
   }
   const primary = device.track || (isPlaying(device.state) ? 'Playing' : 'Paused');
-  const secondary = [device.artist, device.service].filter(Boolean).join(' · ');
+  const secondary = joinMeta(device.artist, device.service);
   return { primary, secondary, idle: false };
 }
 
 function primaryNameFor(device: PlayerStatus, devices: PlayerStatus[]): string | null {
   if (device.sync_role !== 'synced' || !device.master) return null;
-  const primary = devices.find((d) => d.ip === device.master);
+  const primary = devices.find((d) => endpointsMatch(deviceEndpoint(d), device.master));
   return primary?.name ?? device.master;
 }
 
@@ -47,8 +54,12 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
   const [dragVolume, setDragVolume] = useState<number | null>(null);
   const displayVolume = dragVolume ?? device.volume;
 
+  const volumePeers = useMemo(() => {
+    const s2 = isCiS2Device(device);
+    return devices.filter((d) => isCiS2Device(d) === s2);
+  }, [device, devices]);
   const volumesLinked =
-    devices.length > 1 && devices.every((d) => d.volume === devices[0].volume);
+    volumePeers.length > 1 && volumePeers.every((d) => d.volume === volumePeers[0].volume);
   const follows = useMemo(() => primaryNameFor(device, devices), [device, devices]);
   const synced = device.sync_role === 'synced';
   const playing = isPlaying(device.state);
@@ -117,9 +128,7 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
             {device.name}
           </Link>
         </div>
-        <div className="fleet-player-hardware">
-          {device.full_model || device.model || 'BluOS'}
-        </div>
+        <div className="fleet-player-hardware">{formatDeviceHardware(device)}</div>
         <div className="fleet-player-meta">
           {device.sync_role !== 'standalone' && (
             <span className="badge" data-role={device.sync_role}>
@@ -229,7 +238,14 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
         />
         <span className="volume-value">{displayVolume}</span>
         {volumesLinked ? (
-          <span className="volume-linked" title="All players share this volume">
+          <span
+            className="volume-linked"
+            title={
+              isCiS2Device(device)
+                ? 'CI S2 zones share this volume'
+                : 'Residential players share this volume'
+            }
+          >
             link
           </span>
         ) : null}

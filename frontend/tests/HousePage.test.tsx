@@ -15,10 +15,6 @@ vi.mock('@/api/client', () => ({
   },
 }));
 
-vi.mock('@/hooks/useLiveFleet', () => ({
-  useLiveFleet: () => undefined,
-}));
-
 const sample: PlayerStatus = {
   id: 'player-1',
   ip: '192.168.1.10',
@@ -88,7 +84,12 @@ describe('HousePage actions', () => {
       failed: 0,
       results: [],
     });
-    syncBreak.mockResolvedValue(undefined);
+    syncBreak.mockResolvedValue({
+      action: 'sync_break',
+      succeeded: 1,
+      failed: 0,
+      results: [],
+    });
 
     useFleetStore.setState({
       devices: [{ ...sample }, { ...sample, id: 'player-2', name: 'Living', fw: '4.10.0', state: 'play' }],
@@ -125,9 +126,9 @@ describe('HousePage actions', () => {
     expect(screen.queryByRole('heading', { name: 'Rooms' })).not.toBeInTheDocument();
     expect(screen.getAllByText('Kitchen')).toHaveLength(1);
     expect(screen.getAllByText('Living')).toHaveLength(1);
-    expect(screen.getByText('online · play · vol 20 · fw 4.16.6')).toBeInTheDocument();
+    expect(screen.getByText('online / play / vol 20 / fw 4.16.6')).toBeInTheDocument();
     expect(
-      screen.getByText('online · play · vol 20 · fw 4.10.0 · behind house newest'),
+      screen.getByText('online / play / vol 20 / fw 4.10.0 / behind house newest'),
     ).toBeInTheDocument();
   });
 

@@ -40,13 +40,15 @@ interface FleetState {
   patchDevice: (deviceId: string, patch: Partial<PlayerStatus>) => void;
   holdVolume: (deviceId: string, ms?: number) => void;
   holdAllVolumes: (ms?: number) => void;
+  holdVolumes: (deviceIds: string[], ms?: number) => void;
   holdPlayback: (deviceId: string, ms?: number) => void;
   holdSync: (ms?: number) => void;
   setConnection: (connection: ConnectionState) => void;
   setSync: (sync: SyncState | null) => void;
   setToast: (toast: string | null) => void;
   setAllVolumesLocal: (level: number) => void;
-  setFleetVolume: (level: number) => Promise<void>;
+  setVolumesLocal: (level: number, deviceIds: string[]) => void;
+  setFleetVolume: (level: number, deviceIds?: string[]) => Promise<void>;
   toggleMute: (deviceId: string) => Promise<void>;
   fleetMuteAll: (mute: boolean) => Promise<void>;
   fleetPauseAll: () => Promise<void>;
@@ -175,6 +177,19 @@ export const useFleetStore = create<FleetState>((set, get) => ({
     });
   },
 
+  holdVolumes: (deviceIds, ms = VOLUME_HOLD_MS) => {
+    if (deviceIds.length === 0) return;
+    const until = Date.now() + ms;
+    const idSet = new Set(deviceIds);
+    set((state) => {
+      const volumeHoldUntil = { ...state.volumeHoldUntil };
+      for (const id of idSet) {
+        volumeHoldUntil[id] = until;
+      }
+      return { volumeHoldUntil };
+    });
+  },
+
   holdPlayback: (deviceId, ms = PLAYBACK_HOLD_MS) =>
     set((state) => ({
       playbackHoldUntil: {
@@ -205,35 +220,58 @@ export const useFleetStore = create<FleetState>((set, get) => ({
       devices: state.devices.map((d) => ({ ...d, volume: level })),
     })),
 
-  setFleetVolume: async (level) => {
+  setVolumesLocal: (level, deviceIds) => {
+    const idSet = new Set(deviceIds);
+    set((state) => ({
+      devices: state.devices.map((d) => (idSet.has(d.id) ? { ...d, volume: level } : d)),
+    }));
+  },
+
+  setFleetVolume: async (level, deviceIds) => {
     const clamped = Math.max(0, Math.min(100, Math.round(level)));
-    get().holdAllVolumes();
-    get().setAllVolumesLocal(clamped);
-    try {
-      const result = await api.setFleetVolume(clamped);
+    // undefined → whole fleet; explicit [] is a caller bug (no-op).
+    if (deviceIds !== undefined && deviceIds.length === 0) return;
+    const scoped = deviceIds !== undefined;
+    const ids = scoped ? deviceIds : get().devices.map((d) => d.id);
+    if (ids.length === 0) return;
+
+    if (scoped) {
+      get().holdVolumes(ids);
+      get().setVolumesLocal(clamped, ids);
+    } else {
       get().holdAllVolumes();
       get().setAllVolumesLocal(clamped);
+    }
+    try {
+      const result = await api.setFleetVolume(clamped, scoped ? ids : undefined);
+      if (scoped) {
+        get().holdVolumes(ids);
+        get().setVolumesLocal(clamped, ids);
+      } else {
+        get().holdAllVolumes();
+        get().setAllVolumesLocal(clamped);
+      }
       if (clamped > 0) {
         set((state) => {
           const lastAudibleVolume = { ...state.lastAudibleVolume };
-          for (const device of state.devices) {
-            lastAudibleVolume[device.id] = clamped;
+          for (const id of ids) {
+            lastAudibleVolume[id] = clamped;
           }
           return { lastAudibleVolume };
         });
       }
       if (result.failed > 0) {
         set({
-          toast: `Global volume ${clamped}: ${result.succeeded} ok, ${result.failed} failed`,
+          toast: `Volume ${clamped}: ${result.succeeded} ok, ${result.failed} failed`,
         });
       }
     } catch (err) {
       set({
-        globalVolumeHoldUntil: 0,
+        globalVolumeHoldUntil: scoped ? get().globalVolumeHoldUntil : 0,
         toast:
           err instanceof ApiError
             ? `${err.message} (${err.requestId})`
-            : 'Failed to set global volume',
+            : 'Failed to set volume',
       });
       try {
         const fleet = await api.listDevices();

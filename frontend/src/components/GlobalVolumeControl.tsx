@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
+import type { PlayerStatus } from '@/api/types';
 import {
   fleetHasActivePlayback,
   fleetHouseStatus,
   fleetHouseStatusLine,
 } from '@/lib/fleetStatus';
+import { partitionVolumeGroups } from '@/lib/deviceGroups';
 import { useFleetStore } from '@/store/fleetStore';
 import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
 
@@ -18,45 +20,83 @@ function medianVolume(volumes: number[]): number {
   return sorted[mid];
 }
 
-function GlobalVolumePanel() {
-  const devices = useFleetStore((s) => s.devices);
+type GroupVolumePanelProps = {
+  title: string;
+  scopeLabel: string;
+  devices: PlayerStatus[];
+  inputId: string;
+  ariaLabel: string;
+};
+
+function GroupVolumePanel({
+  title,
+  scopeLabel,
+  devices,
+  inputId,
+  ariaLabel,
+}: GroupVolumePanelProps) {
   const setFleetVolume = useFleetStore((s) => s.setFleetVolume);
-  const holdAllVolumes = useFleetStore((s) => s.holdAllVolumes);
+  const holdVolumes = useFleetStore((s) => s.holdVolumes);
   const commitTimer = useRef<number | undefined>(undefined);
   const latestLevel = useRef(0);
+  const deviceIdsRef = useRef<string[]>([]);
+  const flushGeneration = useRef(0);
+  const draggingRef = useRef(false);
   const [dragging, setDragging] = useState(false);
   const [pending, setPending] = useState(false);
   const [dragDraft, setDragDraft] = useState<number | null>(null);
+
+  const deviceIds = useMemo(() => devices.map((d) => d.id), [devices]);
+  useEffect(() => {
+    deviceIdsRef.current = deviceIds;
+  }, [deviceIds]);
 
   const fleetMedian = medianVolume(devices.map((d) => d.volume));
   const display = dragDraft ?? fleetMedian;
   const volumesMatch =
     devices.length > 0 && devices.every((d) => d.volume === devices[0].volume);
+  const headingId = `${inputId}-heading`;
 
   useEffect(() => {
     latestLevel.current = display;
   }, [display]);
 
+  useEffect(
+    () => () => {
+      if (commitTimer.current) window.clearTimeout(commitTimer.current);
+      flushGeneration.current += 1;
+    },
+    [],
+  );
+
   const flush = (level: number) => {
+    const ids = deviceIdsRef.current.slice();
+    if (ids.length === 0) return;
+    const generation = ++flushGeneration.current;
     setPending(true);
-    void setFleetVolume(level).finally(() => {
+    holdVolumes(ids, 5000);
+    void setFleetVolume(level, ids).finally(() => {
+      // Only the latest in-flight flush owns the Syncing… indicator.
+      if (generation !== flushGeneration.current) return;
       setPending(false);
       setDragDraft(null);
     });
   };
 
-  const onInput = (level: number) => {
+  const scheduleFlush = (level: number) => {
     latestLevel.current = level;
     setDragDraft(level);
-    holdAllVolumes(5000);
+    holdVolumes(deviceIdsRef.current, 5000);
     if (commitTimer.current) window.clearTimeout(commitTimer.current);
     commitTimer.current = window.setTimeout(() => {
       commitTimer.current = undefined;
-      flush(level);
+      flush(latestLevel.current);
     }, 80);
   };
 
   const endDrag = () => {
+    if (!draggingRef.current) return;
+    draggingRef.current = false;
     setDragging(false);
     if (commitTimer.current) {
       window.clearTimeout(commitTimer.current);
@@ -65,18 +105,22 @@ function GlobalVolumePanel() {
     flush(latestLevel.current);
   };
 
+  if (devices.length === 0) return null;
+
   return (
-    <section className="fleet-bar-panel" aria-labelledby="global-volume-heading">
+    <section className="fleet-bar-panel" aria-labelledby={headingId}>
       <div className="fleet-bar-panel-head">
-        <h2 id="global-volume-heading">Global volume</h2>
+        <h2 id={headingId}>{title}</h2>
         <span className="card-meta">
           {pending ? (
             'Syncing…'
           ) : dragging ? (
-            <>All → {display}</>
+            <>
+              {scopeLabel} → {display}
+            </>
           ) : volumesMatch ? (
             <>
-              All → {display}
+              {scopeLabel} → {display}
               <span className="volume-linked-pill">linked</span>
             </>
           ) : (
@@ -86,11 +130,10 @@ function GlobalVolumePanel() {
                 type="button"
                 className="volume-linked-pill volume-linked-pill-action"
                 disabled={pending}
-                title={`Set every player to median volume ${fleetMedian}`}
+                title={`Set ${scopeLabel.toLowerCase()} to median volume ${fleetMedian}`}
                 onClick={() => {
                   setDragDraft(fleetMedian);
                   latestLevel.current = fleetMedian;
-                  holdAllVolumes(5000);
                   flush(fleetMedian);
                 }}
               >
@@ -104,11 +147,11 @@ function GlobalVolumePanel() {
         <VolumeNudgeButtons
           value={display}
           disabled={pending}
-          onChange={(level) => onInput(level)}
+          onChange={(level) => scheduleFlush(level)}
         />
-        <label htmlFor="global-vol">Vol</label>
+        <label htmlFor={inputId}>Vol</label>
         <input
-          id="global-vol"
+          id={inputId}
           type="range"
           min={0}
           max={100}
@@ -116,15 +159,17 @@ function GlobalVolumePanel() {
           aria-valuemin={0}
           aria-valuemax={100}
           aria-valuenow={display}
-          aria-label="Set volume on all Bluesound players"
+          aria-label={ariaLabel}
           onPointerDown={() => {
+            draggingRef.current = true;
             setDragging(true);
             setDragDraft(fleetMedian);
-            holdAllVolumes(5000);
+            latestLevel.current = fleetMedian;
+            holdVolumes(deviceIdsRef.current, 5000);
           }}
           onPointerUp={endDrag}
           onPointerCancel={endDrag}
-          onChange={(e) => onInput(Number(e.target.value))}
+          onChange={(e) => scheduleFlush(Number(e.target.value))}
         />
         <span className="global-volume-value" title={`${display}%`}>
           {display}
@@ -152,42 +197,68 @@ function FleetActionsPanel() {
     void action().finally(() => setBusy(null));
   };
 
+  const showArt = status.hasDominantStream && !status.isIdle;
+  const artHref = status.leadId ? `/player/${status.leadId}` : '/house';
+
   return (
     <section
       className="fleet-bar-panel house-remote"
       aria-labelledby="fleet-actions-heading"
       data-idle={status.isIdle ? 'true' : 'false'}
+      data-art={showArt ? 'true' : 'false'}
+      data-dominant={status.hasDominantStream ? 'true' : 'false'}
     >
-      <div className="house-remote-head">
-        <div className="house-remote-title-row">
-          <h2 id="fleet-actions-heading">
-            <Link to="/house" className="house-remote-title-link">
-              House remote
+      <div className="house-remote-body">
+        {showArt ? (
+          <Link
+            to={artHref}
+            className="house-remote-art"
+            aria-label={
+              status.image
+                ? `Now playing artwork — open ${status.primary}`
+                : `Open ${status.primary}`
+            }
+          >
+            {status.image ? (
+              <img
+                key={status.image}
+                src={status.image}
+                alt=""
+                className="house-remote-art-img"
+              />
+            ) : (
+              <span className="house-remote-art-empty" aria-hidden="true">
+                <span className="house-remote-art-glyph" />
+              </span>
+            )}
+          </Link>
+        ) : null}
+        <div className="house-remote-head">
+          <div className="house-remote-title-row">
+            <h2 id="fleet-actions-heading">
+              <Link to="/house" className="house-remote-title-link">
+                House remote
+              </Link>
+            </h2>
+            {status.meta.length > 0 ? (
+              <ul className="house-remote-meta" aria-label="House status">
+                {status.meta.map((item) => (
+                  <li key={item}>{item}</li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+          <p className="house-remote-primary" title={statusTitle}>
+            <Link to="/house" className="house-remote-status-link">
+              {status.primary}
             </Link>
-          </h2>
-          {status.meta.length > 0 ? (
-            <ul className="house-remote-meta" aria-label="House status">
-              {status.meta.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
+          </p>
+          {status.detail ? (
+            <p className="house-remote-detail" title={status.detail}>
+              {status.detail}
+            </p>
           ) : null}
         </div>
-        <p className="house-remote-primary" title={statusTitle}>
-          <Link to="/house" className="house-remote-status-link">
-            {status.primary}
-          </Link>
-        </p>
-        {status.detail ? (
-          <p className="house-remote-detail" title={status.detail}>
-            {status.detail}
-          </p>
-        ) : null}
-        <p className="house-remote-open">
-          <Link to="/house" className="card-meta">
-            Open house →
-          </Link>
-        </p>
       </div>
       <div className="fleet-actions house-remote-actions" role="group" aria-label="House transport">
         <button
@@ -221,14 +292,34 @@ function FleetActionsPanel() {
   );
 }
 
-/** Compact global volume (left) + fleet-wide mute/pause/stop (right). */
+/** Grouped volume controls (left) + fleet-wide mute/pause/stop (right). */
 export function FleetBar() {
   const devices = useFleetStore((s) => s.devices);
+  const { residential, ciS2 } = useMemo(() => partitionVolumeGroups(devices), [devices]);
   if (devices.length === 0) return null;
 
   return (
     <div className="fleet-bar">
-      <GlobalVolumePanel />
+      <div className="fleet-bar-volumes">
+        {residential.length > 0 ? (
+          <GroupVolumePanel
+            title="Global volume"
+            scopeLabel="Rooms"
+            devices={residential}
+            inputId="global-vol"
+            ariaLabel="Set volume on residential Bluesound players"
+          />
+        ) : null}
+        {ciS2.length > 0 ? (
+          <GroupVolumePanel
+            title="CI S2 volume"
+            scopeLabel="S2 zones"
+            devices={ciS2}
+            inputId="ci-s2-vol"
+            ariaLabel="Set volume on NAD CI S2 zones"
+          />
+        ) : null}
+      </div>
       <FleetActionsPanel />
     </div>
   );

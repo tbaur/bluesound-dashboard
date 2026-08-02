@@ -3,6 +3,7 @@ from app.config import Settings
 from app.validators import (
     format_endpoint,
     make_device_id,
+    normalize_bluos_mac,
     parse_endpoint,
     sanitize_endpoint,
     sanitize_ip,
@@ -89,3 +90,10 @@ def test_text_and_attr_helpers() -> None:
     assert text(None, "state", "x") == "x"
     assert attr(root, "vol") == "9"
     assert attr(None, "vol", "0") == "0"
+
+
+def test_normalize_bluos_mac_strips_ci_zone_port() -> None:
+    assert normalize_bluos_mac("90:56:82:16:61:B7:11010") == "90:56:82:16:61:B7"
+    assert normalize_bluos_mac("90:56:82:16:61:b7") == "90:56:82:16:61:B7"
+    assert normalize_bluos_mac("") == ""
+    assert normalize_bluos_mac("not-a-mac") == "not-a-mac"

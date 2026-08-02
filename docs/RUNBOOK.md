@@ -6,7 +6,7 @@
 make run
 ```
 
-That starts the API, waits for `GET /api/v1/healthz`, then starts the UI (avoids Vite proxying to a dead `:8000`).
+That starts the API, waits for `GET /api/v1/healthz`, then starts the UI (avoids Vite proxying to a dead `:8000`). It fails if `:8000` or `:8765` is already in use; set `BSD_FORCE_FREE_PORTS=1` to kill those listeners.
 
 Or two terminals (start UI only after healthz returns 200):
 
@@ -60,20 +60,35 @@ Vite proxies `/api` → the API. CORS defaults allow both `http://127.0.0.1:8765
 |---------|--------------|--------|
 | Empty fleet | Discovery blocked (VPN/firewall) or no players | Wait for empty-fleet rediscovery (`BSD_EMPTY_FLEET_REDISCOVERY_SECONDS`); Rescan; try `BSD_DISCOVERY_METHOD=lsdp` |
 | Missing CI secondary zones | LSDP-only discovery (chassis/primary port) | Use `mdns` or `both` so `_musp` SRV ports (`11010+`) are found |
+| CI zones too loud/quiet vs Nodes when using one slider | Different amp volume scales | Use **CI S2 volume** for NAD CI zones and **Global volume** for residential players — they are separate |
 | `device_not_found` on control | Player dropped off discovery (grace expired) | Rescan network; check `BSD_DISCOVERED_GRACE_TTL` |
+| Rooms stuck “synced” / reconnecting after primary power-off | Orphan group (primary offline) | **Ungroup** / **Ungroup all** / House **Break all groups** — backend reparents onto a live donor then removes |
+| Add rooms disabled on “Offline primary” | Expected — membership changes need a live primary | Ungroup orphans, then form a new group under an online lead |
 | One player stuck offline | Circuit slow-poll after failures | Power-cycle player; wait for recovery poll |
-| SSE reconnecting / stale UI | Proxy buffering, backend restart, or SSE backpressure | Check backend logs for `sse_drop_subscriber`; REST fallback polls every 5s |
+| Bluetooth section missing | Model/probe reports unsupported | Normal for many CI zones and players without BT |
+| SSE reconnecting / stale UI | Proxy buffering, backend restart, or SSE backpressure | Check backend logs for `sse_drop_subscriber`; UI uses exponential reconnect, then after 8 failures shows **Offline**, keeps REST polling every 5s, and retries SSE every 60s until live again (empty fleet uses `BSD_EMPTY_FLEET_REDISCOVERY_SECONDS` cache — not a full discovery each poll) |
+| `make run` says port in use | Something already listens on `:8000`/`:8765` | Stop that process, or `BSD_FORCE_FREE_PORTS=1 make run` |
+| `401 unauthorized` from API | `BSD_API_TOKEN` set without matching UI token | Put the same value in `frontend/.env` as `VITE_API_TOKEN` (Vite does not read repo-root `.env`) |
 | Vite `ECONNREFUSED` / proxy errors to `:8000` | UI started before API was healthy | Use `make run` (waits for healthz); or start API first and confirm healthz before `npm run dev` |
 
 Variable names and defaults: [CONFIGURATION.md](CONFIGURATION.md).
 
+## Multi-room sync notes
+
+- Ungrouping always targets the **primary** with `RemoveSlave` (or legacy `/Sync?remove=`).
+- If the primary is offline, the API tries the slave, then **reparent-ungroup**: briefly `AddSlave` onto another **free/standalone** online player (never a member of another group), then `RemoveSlave` there, and verifies standalone via `/SyncStatus`.
+- After a successful leave, freed players are **stopped** so leftover AirPlay/capture sessions clear (primary only when it has no remaining followers).
+- Orphan groups appear in the Sync panel with lead name **Offline primary** and an `offline` role chip; you can ungroup followers but cannot add rooms until a live primary exists.
+- **Group all free rooms** / `POST /api/v1/sync/enable` attaches only standalones — existing groups are left alone.
+- **Ungroup all** / `POST /api/v1/sync/break` returns succeeded/failed counts; HTTP 502 only when every link removal fails.
+
 ## Logs
 
-Stdout JSON logs include `request_id`. Every HTTP request (except SSE stream) emits `http_request` with method, path, status, and `duration_ms`. Control paths emit `control_op` / `control_failed` / `control_during_grace` with `op`, `device_id`, and `device_ip`. Fleet-wide actions log per-device results plus `fleet_action_complete`. Correlate UI toast request IDs with log lines.
+Stdout JSON logs include `request_id`. Every HTTP request (except SSE stream) emits `http_request` with method, path, status, and `duration_ms`. Control paths emit `control_op` / `control_failed` / `control_during_grace` with `op`, `device_id`, and `device_ip`. Fleet-wide actions log per-device results plus `fleet_action_complete` (`action`, `succeeded`, `failed`). Scoped fleet volume also logs `fleet_volume_targets` with `target_count` / `scoped`. Stop-after-ungroup warnings include `role` (`slave` / `primary`). Correlate UI toast request IDs with log lines.
 
 ## See also
 
 - [CONFIGURATION.md](CONFIGURATION.md) — all `BSD_` variables
-- [SECURITY.md](../SECURITY.md) — vulnerability reporting
+- [SECURITY.md](../SECURITY.md) — supported versions and vulnerability reporting
 - [README.md](../README.md) — project overview
 - [CONTRIBUTING.md](../CONTRIBUTING.md) — setup and checks

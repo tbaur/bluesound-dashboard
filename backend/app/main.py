@@ -176,7 +176,7 @@ async def lifespan(app: FastAPI):
     settings = get_settings()
     configure_logging(settings.log_level)
     client = BluOSClient(settings)
-    events = EventBus()
+    events = EventBus(max_queue_size=settings.sse_queue_size)
     discovery = DiscoveryService(settings, client)
     poller = StatusPoller(settings, discovery, client, events)
     app.state.app_state = AppState(
