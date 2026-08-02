@@ -88,6 +88,7 @@ export function PlayerDetailPage() {
   const toast = useFleetStore((s) => s.toast);
   const setToast = useFleetStore((s) => s.setToast);
   const volumeCommitTimer = useRef<number | undefined>(undefined);
+  const nudgeBaseline = useRef(device?.volume ?? 0);
 
   const [queue, setQueue] = useState<QueueResponse | null>(null);
   const [inputs, setInputs] = useState<AudioInput[]>([]);
@@ -162,6 +163,10 @@ export function PlayerDetailPage() {
     };
   }, [id]);
 
+  useEffect(() => {
+    if (device) nudgeBaseline.current = device.volume;
+  }, [device?.id, device?.volume]);
+
   useEffect(
     () => () => {
       if (volumeCommitTimer.current) window.clearTimeout(volumeCommitTimer.current);
@@ -174,11 +179,23 @@ export function PlayerDetailPage() {
     const deviceId = device.id;
     useFleetStore.getState().holdVolume(deviceId);
     patchDevice(deviceId, { volume: level });
+    nudgeBaseline.current = level;
     if (volumeCommitTimer.current) window.clearTimeout(volumeCommitTimer.current);
     volumeCommitTimer.current = window.setTimeout(() => {
       volumeCommitTimer.current = undefined;
       void control(deviceId, () => api.setVolume(deviceId, level), { volume: level });
     }, 80);
+  };
+
+  const nudgeDeviceVolume = (level: number) => {
+    if (!device) return;
+    const deviceId = device.id;
+    const delta = level - nudgeBaseline.current;
+    if (delta === 0) return;
+    nudgeBaseline.current = level;
+    useFleetStore.getState().holdVolume(deviceId);
+    patchDevice(deviceId, { volume: level });
+    void control(deviceId, () => api.adjustVolume(deviceId, delta), { volume: level });
   };
 
   if (!device) {
@@ -392,7 +409,7 @@ export function PlayerDetailPage() {
         <div className="dossier-volume">
           <h3>Device volume</h3>
           <div className="volume-row">
-            <VolumeNudgeButtons value={device.volume} onChange={commitDeviceVolume} />
+            <VolumeNudgeButtons value={device.volume} onChange={nudgeDeviceVolume} />
             <input
               type="range"
               min={0}

@@ -1,8 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@/api/client';
 import type { PlayerStatus, SyncGroup, SyncState } from '@/api/types';
 import { deviceEndpoint } from '@/lib/endpoint';
 import { useFleetStore } from '@/store/fleetStore';
+
+function isOnlinePrimary(primaryId: string, byId: Record<string, PlayerStatus>): boolean {
+  return Boolean(byId[primaryId]);
+}
 
 function occupiedRoomIds(groups: SyncGroup[]): Set<string> {
   const ids = new Set<string>();
@@ -81,17 +85,19 @@ export function SyncPanel() {
     [devices, sync, groups, leadId],
   );
 
-  if (creating && leadId && occupiedRoomIds(groups).has(leadId)) {
-    setCreating(false);
-    setLeadId('');
-  }
+  useEffect(() => {
+    if (creating && leadId && occupiedRoomIds(groups).has(leadId)) {
+      setCreating(false);
+      setLeadId('');
+    }
+  }, [creating, leadId, groups]);
 
   if (devices.length < 2) return null;
 
   const canStartGroup = freeRooms.length >= 2;
   const showBuilder = canStartGroup && (groups.length === 0 || creating);
   const canStartSeparate = canStartGroup && groups.length > 0 && !showBuilder;
-  const canUngroupAll = groups.length >= 2;
+  const canUngroupAll = groups.length >= 1;
 
   const run = async (deviceId: string, action: () => Promise<void>) => {
     setBusy(true);
@@ -215,6 +221,20 @@ export function SyncPanel() {
     });
   };
 
+  const groupAllUnder = (primaryId: string) => {
+    void run(primaryId, async () => {
+      holdSync(8000);
+      const result = await api.syncEnable(primaryId);
+      await reloadStatus();
+      closeBuilder();
+      if (result.failed > 0) {
+        useFleetStore.getState().setToast(
+          `Grouped ${result.succeeded} free room${result.succeeded === 1 ? '' : 's'}; ${result.failed} failed`,
+        );
+      }
+    });
+  };
+
   return (
     <section className="sync-strip" aria-labelledby="sync-heading">
       <header className="sync-head">
@@ -226,8 +246,11 @@ export function SyncPanel() {
 
       <div className="sync-stack">
         {groups.map((group) => {
-          const open = addingTo === group.primary_id;
-          const candidates = availableFollowers(devices, sync, groups, group.primary_id);
+          const primaryOnline = isOnlinePrimary(group.primary_id, byId);
+          const open = addingTo === group.primary_id && primaryOnline;
+          const candidates = primaryOnline
+            ? availableFollowers(devices, sync, groups, group.primary_id)
+            : [];
           const followerCount = group.slave_ids.length;
           return (
             <article className="sync-group" key={group.primary_id}>
@@ -236,11 +259,14 @@ export function SyncPanel() {
                   {group.primary_name}
                   <span className="sync-group-label-muted">
                     {' '}
-                    {' / '}lead{' / '}{roomCountLabel(followerCount + 1)}
+                    {' / '}
+                    {primaryOnline ? 'lead' : 'offline'}
+                    {' / '}
+                    {roomCountLabel(followerCount + (primaryOnline ? 1 : 0))}
                   </span>
                 </p>
                 <div className="sync-actions">
-                  {candidates.length > 0 && (
+                  {primaryOnline && candidates.length > 0 && (
                     <button
                       type="button"
                       className="btn btn-compact"
@@ -364,17 +390,29 @@ export function SyncPanel() {
                   {createFollowers.length === 0 ? (
                     <span className="sync-hint">No free rooms left</span>
                   ) : (
-                    createFollowers.map((d) => (
-                      <button
-                        key={d.id}
-                        type="button"
-                        className="sync-chip sync-chip-choice"
-                        disabled={busy}
-                        onClick={() => addFollower(leadId, d.id, true)}
-                      >
-                        + {d.name}
-                      </button>
-                    ))
+                    <>
+                      {createFollowers.map((d) => (
+                        <button
+                          key={d.id}
+                          type="button"
+                          className="sync-chip sync-chip-choice"
+                          disabled={busy}
+                          onClick={() => addFollower(leadId, d.id, true)}
+                        >
+                          + {d.name}
+                        </button>
+                      ))}
+                      {createFollowers.length >= 1 ? (
+                        <button
+                          type="button"
+                          className="btn btn-compact"
+                          disabled={busy}
+                          onClick={() => groupAllUnder(leadId)}
+                        >
+                          Group all free rooms
+                        </button>
+                      ) : null}
+                    </>
                   )}
                 </>
               )}

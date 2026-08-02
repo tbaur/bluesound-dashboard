@@ -38,6 +38,7 @@ from app.models import (
     SyncEnableRequest,
     SyncEnableResponse,
     SyncPairRequest,
+    SyncRole,
     SyncState,
     UpgradeStatus,
     VersionInfo,
@@ -124,11 +125,17 @@ def _resolve_sync_master(
 
 
 def _sync_donor_endpoints(state: AppState, *exclude: str) -> list[str]:
+    """Live standalones only — never reparent onto another group's members."""
     excluded = {ep for ep in exclude if ep}
+    sync = build_sync_state(state.discovery.snapshot.devices)
+    free_ids = set(sync.standalone_ids)
     return [
         d.endpoint
         for d in state.discovery.snapshot.devices
-        if d.endpoint and d.endpoint not in excluded
+        if d.endpoint
+        and d.endpoint not in excluded
+        and d.id in free_ids
+        and d.sync_role == SyncRole.STANDALONE
     ]
 
 
@@ -444,8 +451,15 @@ async def toggle(device_id: str, state: StateDep) -> Response:
 @router.post("/devices/{device_id}/volume/adjust", status_code=204)
 async def volume_adjust(device_id: str, body: VolumeAdjustRequest, state: StateDep) -> Response:
     ip = _require_device(state, device_id)
-    device = state.discovery.get_device(device_id)
-    current = device.volume if device else 0
+    # Prefer live SyncStatus volume — cached fleet snapshot can lag concurrent nudges.
+    live = await state.client.get_player_status(ip, device_id=device_id)
+    cached = state.discovery.get_device(device_id)
+    if live.status == "online":
+        current = live.volume
+    elif cached is not None:
+        current = cached.volume
+    else:
+        raise AppError(502, "bluos_status_failed", "Failed to read player volume")
 
     async def op(_: str) -> bool:
         return await state.client.adjust_volume(ip, body.delta, current)
@@ -733,7 +747,8 @@ async def bluetooth(device_id: str, state: StateDep) -> BluetoothResponse:
         return BluetoothResponse(supported=False, mode=None)
     info = await state.client.get_bluetooth_info(ip)
     if info is None:
-        raise AppError(502, "bluos_bluetooth_failed", "Failed to read Bluetooth mode")
+        # Probe hard-fail → treat as unsupported (matches UI / README soft path).
+        return BluetoothResponse(supported=False, mode=None)
     return info
 
 
@@ -811,12 +826,24 @@ async def sync_add(body: SyncPairRequest, state: StateDep) -> Response:
 
 @router.post("/sync/enable", response_model=SyncEnableResponse)
 async def sync_enable(body: SyncEnableRequest, state: StateDep) -> SyncEnableResponse:
-    """Group every other discovered player under one primary."""
+    """Group all free (standalone) rooms under one primary — never steal from existing groups."""
     primary_ip = _require_device(state, body.primary_id)
     snapshot = await state.discovery.get_devices()
-    slaves = [d for d in snapshot.devices if d.id != body.primary_id]
+    sync = build_sync_state(snapshot.devices)
+    free_ids = set(sync.standalone_ids)
+    if body.primary_id not in free_ids and not any(
+        g.primary_id == body.primary_id for g in sync.groups
+    ):
+        # Primary must be free or already leading a group we are expanding.
+        raise AppError(400, "primary_not_free", "Primary must be a free room or an existing lead")
+    by_id = {d.id: d for d in snapshot.devices}
+    slaves = [
+        by_id[sid]
+        for sid in sorted(free_ids)
+        if sid != body.primary_id and sid in by_id
+    ]
     if not slaves:
-        raise AppError(400, "no_slaves", "No other players to group under the primary")
+        raise AppError(400, "no_slaves", "No free players to group under the primary")
     logger.info(
         "control_op",
         extra={"op": "sync_enable", "device_id": body.primary_id, "device_ip": primary_ip},
@@ -937,7 +964,11 @@ async def sync_break(state: StateDep) -> Response:
             master_ip = _require_device(state, group.primary_id)
             affected.add(group.primary_id)
 
-        donors = _sync_donor_endpoints(state, master_ip)
+        slave_endpoints: list[str] = []
+        for slave_id in group.slave_ids:
+            slave_endpoints.append(_require_device(state, slave_id))
+        # Do not use siblings in the same break as reparent donors.
+        donors = _sync_donor_endpoints(state, master_ip, *slave_endpoints)
 
         async def remove_slave(
             slave_id: str,
@@ -951,7 +982,13 @@ async def sync_break(state: StateDep) -> Response:
                 donor_endpoints=_donors,
             )
 
-        results = await asyncio.gather(*(remove_slave(slave_id) for slave_id in group.slave_ids))
+        # Orphans: serialize reparent so two slaves do not race onto one donor.
+        if is_orphan_primary_id(group.primary_id):
+            results = [await remove_slave(slave_id) for slave_id in group.slave_ids]
+        else:
+            results = await asyncio.gather(
+                *(remove_slave(slave_id) for slave_id in group.slave_ids)
+            )
         removed_any = False
         for slave_id, ok in zip(group.slave_ids, results, strict=True):
             if not ok:
@@ -961,8 +998,14 @@ async def sync_break(state: StateDep) -> Response:
             slave_ip = _require_device(state, slave_id)
             slave_stops.append((slave_id, slave_ip))
             affected.add(slave_id)
+        # Only stop the primary when it no longer has followers (mirror sync/remove).
         if removed_any and not is_orphan_primary_id(group.primary_id):
-            primary_stops.append((group.primary_id, master_ip))
+            primary = await state.client.get_player_status(
+                master_ip,
+                device_id=group.primary_id,
+            )
+            if not primary.slaves:
+                primary_stops.append((group.primary_id, master_ip))
 
     async def _stop(device_id: str, ip: str, role: str) -> None:
         ok = await state.client.stop(ip)

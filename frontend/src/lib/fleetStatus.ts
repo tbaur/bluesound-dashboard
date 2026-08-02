@@ -4,7 +4,7 @@ import { joinMeta } from '@/lib/meta';
 import { streamQualityLabel } from '@/lib/streamQuality';
 
 function isPlaying(state: string): boolean {
-  return state === 'play' || state === 'stream';
+  return state === 'play' || state === 'stream' || state === 'connecting';
 }
 
 function serviceLabel(device: PlayerStatus): string {
@@ -98,10 +98,20 @@ function playingClusters(
   if (sync?.groups.length) {
     for (const group of sync.groups) {
       const primary = byId.get(group.primary_id);
-      if (!primary) continue;
       const followers = group.slave_ids
         .map((id) => byId.get(id))
         .filter((d): d is PlayerStatus => Boolean(d));
+      if (!primary) {
+        // Offline primary: still cluster playing orphans as one house stream.
+        const playingMembers = followers.filter((d) => isPlaying(d.state));
+        if (playingMembers.length === 0) continue;
+        const lead = pickLead(playingMembers);
+        pushGroup(
+          lead,
+          playingMembers.filter((d) => d.id !== lead.id),
+        );
+        continue;
+      }
       pushGroup(primary, followers);
     }
   } else {

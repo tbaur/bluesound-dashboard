@@ -403,10 +403,59 @@ describe('fleetHouseStatus', () => {
     ).toBe('Sapana / TIDAL connect');
   });
 
-  it('detects active playback', () => {
+  it('detects active playback including connecting', () => {
     expect(fleetHasActivePlayback([player({ id: '1', name: 'A' })])).toBe(false);
     expect(
       fleetHasActivePlayback([player({ id: '1', name: 'A', state: 'stream' })]),
     ).toBe(true);
+    expect(
+      fleetHasActivePlayback([player({ id: '1', name: 'A', state: 'connecting' })]),
+    ).toBe(true);
+  });
+
+  it('clusters orphan sync members as one dominant stream', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '2',
+          name: 'Kitchen',
+          state: 'play',
+          service: 'AirPlay',
+          track: 'Song',
+          artist: 'Artist',
+          sync_role: 'synced',
+          master: '10.0.0.9:11000',
+          image: 'http://art/a.jpg',
+        }),
+        player({
+          id: '3',
+          name: 'Patio',
+          state: 'stream',
+          service: 'AirPlay',
+          track: 'Song',
+          artist: 'Artist',
+          sync_role: 'synced',
+          master: '10.0.0.9:11000',
+        }),
+      ],
+      {
+        groups: [
+          {
+            primary_id: 'orphan-dead',
+            primary_name: 'Offline primary',
+            primary_ip: '10.0.0.9',
+            primary_endpoint: '10.0.0.9:11000',
+            group: '',
+            slave_ids: ['2', '3'],
+            slave_names: ['Kitchen', 'Patio'],
+          },
+        ],
+        standalone_ids: [],
+      },
+    );
+    expect(status.hasDominantStream).toBe(true);
+    expect(status.sourceCount).toBe(1);
+    expect(status.primary).toBe('Song — Artist');
+    expect(status.meta).toContain('2 playing');
   });
 });

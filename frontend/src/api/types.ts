@@ -97,6 +97,8 @@ export interface SyncState {
 export interface DiagnoseResponse {
   device_id: string;
   ip: string;
+  /** BluOS API port (backend always includes; typically 11000). */
+  port: number;
   name: string;
   model: string;
   full_model: string;

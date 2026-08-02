@@ -57,6 +57,15 @@ async def test_device_volume_mute_adjust(
     client.set_volume = AsyncMock(return_value=True)  # type: ignore[method-assign]
     client.set_mute = AsyncMock(return_value=True)  # type: ignore[method-assign]
     client.adjust_volume = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.get_player_status = AsyncMock(  # type: ignore[method-assign]
+        return_value=PlayerStatus(
+            id="player-kitchen",
+            ip="192.168.1.20",
+            name="Kitchen",
+            status="online",
+            volume=33,
+        )
+    )
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
@@ -67,7 +76,8 @@ async def test_device_volume_mute_adjust(
         assert (
             await http.post("/api/v1/devices/player-kitchen/volume/adjust", json={"delta": 2})
         ).status_code == 204
-        client.adjust_volume.assert_awaited_with("192.168.1.20:11000", 2, 22)
+        client.get_player_status.assert_awaited()
+        client.adjust_volume.assert_awaited_with("192.168.1.20:11000", 2, 33)
     await client.aclose()
 
 
@@ -213,7 +223,9 @@ async def test_read_endpoints_fail_when_client_returns_none(
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         assert (await http.get("/api/v1/devices/player-kitchen/queue")).status_code == 502
         assert (await http.get("/api/v1/devices/player-kitchen/inputs")).status_code == 502
-        assert (await http.get("/api/v1/devices/player-kitchen/bluetooth")).status_code == 502
+        bt = await http.get("/api/v1/devices/player-kitchen/bluetooth")
+        assert bt.status_code == 200
+        assert bt.json() == {"supported": False, "mode": None}
         assert (await http.get("/api/v1/devices/player-kitchen/presets")).status_code == 502
     await client.aclose()
 
@@ -415,6 +427,96 @@ async def test_sync_add_enable_and_get(settings: Settings, monkeypatch: pytest.M
         assert body["succeeded"] >= 1
         assert body["failed"] == 0
         assert client.add_sync_slave.await_count >= 2
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_sync_enable_only_links_free_rooms(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    players = [
+        PlayerStatus(
+            id="primary",
+            ip="192.168.1.10",
+            name="Lead",
+            status="online",
+            sync_role=SyncRole.STANDALONE,
+        ),
+        PlayerStatus(
+            id="free",
+            ip="192.168.1.11",
+            name="Free",
+            status="online",
+            sync_role=SyncRole.STANDALONE,
+        ),
+        PlayerStatus(
+            id="g-primary",
+            ip="192.168.1.12",
+            name="GroupLead",
+            status="online",
+            sync_role=SyncRole.PRIMARY,
+            slaves=["192.168.1.13:11000"],
+        ),
+        PlayerStatus(
+            id="g-slave",
+            ip="192.168.1.13",
+            name="Grouped",
+            status="online",
+            sync_role=SyncRole.SYNCED,
+            master="192.168.1.12:11000",
+        ),
+    ]
+    app, client, _, poller = await app_with_players(settings, monkeypatch, players=players)
+    client.add_sync_slave = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    poller.refresh_one = AsyncMock(return_value=None)  # type: ignore[method-assign]
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        enable = await http.post("/api/v1/sync/enable", json={"primary_id": "primary"})
+        assert enable.status_code == 200
+        body = enable.json()
+        assert body["succeeded"] == 1
+        assert body["failed"] == 0
+        client.add_sync_slave.assert_awaited_once_with(
+            "192.168.1.10:11000",
+            "192.168.1.11:11000",
+        )
+    await client.aclose()
+
+
+@pytest.mark.asyncio
+async def test_volume_adjust_falls_back_to_cached_when_live_offline(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    players = [
+        PlayerStatus(
+            id="player-kitchen",
+            ip="192.168.1.20",
+            name="Kitchen",
+            status="online",
+            volume=40,
+        )
+    ]
+    app, client, _, _ = await app_with_players(settings, monkeypatch, players=players)
+    client.adjust_volume = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.get_player_status = AsyncMock(  # type: ignore[method-assign]
+        return_value=PlayerStatus(
+            id="player-kitchen",
+            ip="192.168.1.20",
+            name="Kitchen",
+            status="offline",
+            volume=0,
+        )
+    )
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        response = await http.post(
+            "/api/v1/devices/player-kitchen/volume/adjust",
+            json={"delta": 3},
+        )
+        assert response.status_code == 204
+        client.adjust_volume.assert_awaited_with("192.168.1.20:11000", 3, 40)
     await client.aclose()
 
 

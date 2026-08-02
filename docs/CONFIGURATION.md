@@ -46,6 +46,18 @@ The backend only talks to discovered private IPs (see `BSD_ALLOW_NON_PRIVATE_IPS
 
 mDNS discovers primary players (`_musc._tcp.local.`) and CI secondary zones (`_musp._tcp.local.`, e.g. NAD CI S2). Players are keyed as canonical `ip:port`. LSDP discovers chassis IPs only (normalized to `ip:11000`); secondary zones require mDNS. Only endpoints that answer `/SyncStatus` are kept in the fleet.
 
+### Multi-zone and volume UI
+
+NAD CI multi-zone chassis expose each zone as its own BluOS endpoint (often `:11010`, `:11011`, …). The fleet UI shows zone numbers next to the model name. **Global volume** applies only to residential Bluesound players; **CI S2 volume** applies only to CI S2 zones — do not expect one slider to match both product lines.
+
+### Sync / orphan groups
+
+`POST /api/v1/sync/enable` groups **free (standalone) rooms only** under the chosen primary — it never pulls followers out of existing groups. `POST /api/v1/sync/break` and `POST /api/v1/sync/remove` dissolve runtime groups. When the primary has left discovery, secondaries that still report a master are surfaced as orphan groups (`Offline primary` in the UI). Break/remove then use reparent-ungroup against **other free/standalone** online endpoints (never members of another group). See [RUNBOOK.md](RUNBOOK.md) **Multi-room sync notes**.
+
+### Bluetooth
+
+`GET /api/v1/devices/{id}/bluetooth` returns `supported: false` when the model is known-unsupported, the capture probe reports no Bluetooth, **or the probe hard-fails** — not a 502. The player detail UI hides the Bluetooth section in that case.
+
 ## Polling and device HTTP
 
 | Variable | Default | Purpose |

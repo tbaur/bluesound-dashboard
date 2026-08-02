@@ -6,7 +6,6 @@ import asyncio
 import logging
 import re
 import time
-import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
 
@@ -996,7 +995,8 @@ class BluOSClient:
         ) is not None
 
     async def get_presets(self, ip: str) -> list[Preset] | None:
-        raw = await self._get(ip, "/Presets", control=True)
+        # Read path: do not burn the control rate slot / single-attempt budget.
+        raw = await self._get(ip, "/Presets", control=False)
         if not raw:
             return None
         root = safe_parse_xml(raw, self.settings, ip)
@@ -1022,14 +1022,12 @@ class BluOSClient:
     _ungroup_verify_attempts = 6
     _ungroup_verify_delay = 0.25
 
-    @staticmethod
-    def _bluos_response_ok(content: bytes | None) -> bool:
-        """True when BluOS returned a non-error XML body."""
+    def _bluos_response_ok(self, content: bytes | None, context: str = "") -> bool:
+        """True when BluOS returned a non-error XML body (structure-capped parse)."""
         if not content:
             return False
-        try:
-            root = ET.fromstring(content)
-        except ET.ParseError:
+        root = safe_parse_xml(content, self.settings, context or "bluos")
+        if root is None:
             return False
         tag = root.tag.lower()
         if tag == "error" or root.find("error") is not None:
@@ -1046,7 +1044,7 @@ class BluOSClient:
             return None
         ep = format_endpoint(*resolved)
         raw = await self._get(ep, "/SyncStatus")
-        if not self._bluos_response_ok(raw):
+        if not self._bluos_response_ok(raw, ep):
             return None
         assert raw is not None
         sync = self._parse_sync(raw, ep)
@@ -1075,6 +1073,7 @@ class BluOSClient:
         slave_host, slave_port = slave
         slave_ep = format_endpoint(slave_host, slave_port)
         remove_query = f"slave={slave_host}&port={slave_port}"
+        legacy_query = f"remove={slave_host}"
 
         for donor in donor_endpoints:
             donor_resolved = self._resolve_target(donor)
@@ -1092,14 +1091,20 @@ class BluOSClient:
                     query=remove_query,
                     control=True,
                 )
-                if self._bluos_response_ok(res) and await self._wait_until_ungrouped(slave_ep):
+                if self._bluos_response_ok(res, donor_ep) and await self._wait_until_ungrouped(
+                    slave_ep
+                ):
                     return True
             logger.error(
                 "reparent_ungroup_failed slave=%s donor=%s",
                 slave_ep,
                 donor_ep,
             )
-            return False
+            # Best-effort leave this donor, verify clear, then try the next.
+            await self._get(donor_ep, "/RemoveSlave", query=remove_query, control=True)
+            await self._get(donor_ep, "/Sync", query=legacy_query, control=True)
+            await self._wait_until_ungrouped(slave_ep)
+            continue
         return False
 
     async def add_sync_slave(self, master_target: str, slave_target: str) -> bool:
@@ -1116,10 +1121,10 @@ class BluOSClient:
             query=f"slave={slave_ip}&port={slave_port}",
             control=True,
         )
-        if self._bluos_response_ok(ok):
+        if self._bluos_response_ok(ok, master_ep):
             return True
         legacy = await self._get(master_ep, "/Sync", query=f"slave={slave_ip}", control=True)
-        return self._bluos_response_ok(legacy)
+        return self._bluos_response_ok(legacy, master_ep)
 
     async def remove_sync_slave(
         self,
@@ -1147,7 +1152,9 @@ class BluOSClient:
         async def _try_remove(on_ep: str) -> bool:
             for path, query in (("/RemoveSlave", remove_query), ("/Sync", legacy_query)):
                 res = await self._get(on_ep, path, query=query, control=True)
-                if self._bluos_response_ok(res) and await self._wait_until_ungrouped(slave_ep):
+                if self._bluos_response_ok(res, on_ep) and await self._wait_until_ungrouped(
+                    slave_ep
+                ):
                     return True
             return False
 
