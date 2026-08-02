@@ -44,9 +44,9 @@ from app.models import (
     VolumeAdjustRequest,
     VolumeRequest,
 )
-from app.services.sync import build_sync_state
+from app.services.sync import build_sync_state, is_orphan_primary_id
 from app.state import AppState
-from app.validators import DEFAULT_BLUOS_PORT, parse_endpoint, validate_device_id
+from app.validators import DEFAULT_BLUOS_PORT, parse_endpoint, sanitize_ip, validate_device_id
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +87,49 @@ def _require_device(state: AppState, device_id: str) -> str:
             extra={"op": "resolve", "device_id": device_id, "device_ip": endpoint},
         )
     return endpoint
+
+
+def _allow_master_endpoint(state: AppState, endpoint: str) -> str:
+    """Validate a master endpoint that may not be in the discovered set."""
+    host = _endpoint_host(endpoint, default_port=state.settings.bluos_port)
+    if not host or not sanitize_ip(host):
+        raise AppError(400, "invalid_master", "Master endpoint is invalid")
+    if not state.settings.is_allowed_device_ip(host):
+        raise AppError(403, "ip_not_allowed", "Device IP is outside the allowed range")
+    return endpoint
+
+
+def _resolve_sync_master(
+    state: AppState,
+    master_id: str,
+    slave_id: str,
+) -> str:
+    """Resolve primary endpoint for ungroup — including offline/orphan primaries."""
+    if state.discovery.is_known_id(master_id):
+        return _require_device(state, master_id)
+
+    snapshot = state.discovery.snapshot
+    if is_orphan_primary_id(master_id):
+        for group in build_sync_state(snapshot.devices).groups:
+            if group.primary_id == master_id and group.primary_endpoint:
+                return _allow_master_endpoint(state, group.primary_endpoint)
+
+    slave = next((d for d in snapshot.devices if d.id == slave_id), None)
+    if slave and slave.master:
+        return _allow_master_endpoint(state, slave.master)
+
+    if not validate_device_id(master_id):
+        raise AppError(400, "invalid_device_id", "Device id format is invalid")
+    raise AppError(404, "device_not_found", "Device is not in the discovered set")
+
+
+def _sync_donor_endpoints(state: AppState, *exclude: str) -> list[str]:
+    excluded = {ep for ep in exclude if ep}
+    return [
+        d.endpoint
+        for d in state.discovery.snapshot.devices
+        if d.endpoint and d.endpoint not in excluded
+    ]
 
 
 _pending_refresh: dict[str, asyncio.Task[object]] = {}
@@ -821,31 +864,38 @@ async def _clear_playback_after_leave(
             "stop_after_ungroup_failed",
             extra={"op": "stop", "device_id": slave_id, "device_ip": slave_ip, "role": "slave"},
         )
-    primary = await state.client.get_player_status(master_ip, device_id=master_id)
-    if not primary.slaves:
-        master_stopped = await state.client.stop(master_ip)
-        if not master_stopped:
-            logger.warning(
-                "stop_after_ungroup_failed",
-                extra={
-                    "op": "stop",
-                    "device_id": master_id,
-                    "device_ip": master_ip,
-                    "role": "primary",
-                },
-            )
-    await state.poller.refresh_one(master_id)
+    if not is_orphan_primary_id(master_id):
+        primary = await state.client.get_player_status(master_ip, device_id=master_id)
+        if not primary.slaves:
+            master_stopped = await state.client.stop(master_ip)
+            if not master_stopped:
+                logger.warning(
+                    "stop_after_ungroup_failed",
+                    extra={
+                        "op": "stop",
+                        "device_id": master_id,
+                        "device_ip": master_ip,
+                        "role": "primary",
+                    },
+                )
+        await state.poller.refresh_one(master_id)
     await state.poller.refresh_one(slave_id)
+
 
 @router.post("/sync/remove", status_code=204)
 async def sync_remove(body: SyncPairRequest, state: StateDep) -> Response:
-    master_ip = _require_device(state, body.master_id)
     slave_ip = _require_device(state, body.slave_id)
+    master_ip = _resolve_sync_master(state, body.master_id, body.slave_id)
+    donors = _sync_donor_endpoints(state, master_ip, slave_ip)
     logger.info(
         "control_op",
         extra={"op": "sync_remove", "device_id": body.master_id, "device_ip": master_ip},
     )
-    ok = await state.client.remove_sync_slave(master_ip, slave_ip)
+    ok = await state.client.remove_sync_slave(
+        master_ip,
+        slave_ip,
+        donor_endpoints=donors,
+    )
     if not ok:
         logger.warning(
             "control_failed",
@@ -866,9 +916,8 @@ async def sync_remove(body: SyncPairRequest, state: StateDep) -> Response:
 async def sync_break(state: StateDep) -> Response:
     """Dissolve every sync group without a full LAN rediscovery.
 
-    Removes links, stops freed players (clears AirPlay capture), then refreshes
-    only the affected devices. A network rescan is unnecessary and was making
-    Break all feel multi‑second slow after mDNS+LSDP merge.
+    Removes links (including orphans whose primary is offline), stops freed
+    players (clears AirPlay capture), then refreshes only the affected devices.
     """
     logger.info("control_op", extra={"op": "sync_break", "device_id": "-", "device_ip": "-"})
     snapshot = await state.discovery.get_devices()
@@ -879,12 +928,28 @@ async def sync_break(state: StateDep) -> Response:
     affected: set[str] = set()
 
     for group in sync.groups:
-        master_ip = _require_device(state, group.primary_id)
-        affected.add(group.primary_id)
+        if is_orphan_primary_id(group.primary_id):
+            master_ip = _allow_master_endpoint(
+                state,
+                group.primary_endpoint or group.primary_ip,
+            )
+        else:
+            master_ip = _require_device(state, group.primary_id)
+            affected.add(group.primary_id)
 
-        async def remove_slave(slave_id: str, _master_ip: str = master_ip) -> bool:
+        donors = _sync_donor_endpoints(state, master_ip)
+
+        async def remove_slave(
+            slave_id: str,
+            _master_ip: str = master_ip,
+            _donors: list[str] = donors,
+        ) -> bool:
             slave_ip = _require_device(state, slave_id)
-            return await state.client.remove_sync_slave(_master_ip, slave_ip)
+            return await state.client.remove_sync_slave(
+                _master_ip,
+                slave_ip,
+                donor_endpoints=_donors,
+            )
 
         results = await asyncio.gather(*(remove_slave(slave_id) for slave_id in group.slave_ids))
         removed_any = False
@@ -896,7 +961,7 @@ async def sync_break(state: StateDep) -> Response:
             slave_ip = _require_device(state, slave_id)
             slave_stops.append((slave_id, slave_ip))
             affected.add(slave_id)
-        if removed_any:
+        if removed_any and not is_orphan_primary_id(group.primary_id):
             primary_stops.append((group.primary_id, master_ip))
 
     async def _stop(device_id: str, ip: str, role: str) -> None:

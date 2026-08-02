@@ -384,6 +384,12 @@ async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
     remove = respx.get("http://192.168.1.20:11000/RemoveSlave").mock(
         return_value=httpx.Response(200, content=b"<ok/>")
     )
+    respx.get("http://192.168.1.21:11000/SyncStatus").mock(
+        return_value=httpx.Response(
+            200,
+            content=b"<SyncStatus id='192.168.1.21:11000' name='Patio'/>",
+        )
+    )
     volume = respx.get("http://192.168.1.20:11000/Volume").mock(
         return_value=httpx.Response(200, content=b"<ok/>")
     )

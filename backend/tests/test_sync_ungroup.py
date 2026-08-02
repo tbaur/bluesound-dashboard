@@ -99,6 +99,7 @@ async def test_sync_remove_stops_slave_and_empty_primary(
     client.remove_sync_slave.assert_awaited_once_with(
         "192.168.1.10:11000",
         "192.168.1.11:11000",
+        donor_endpoints=[],
     )
     assert client.stop.await_count == 2
     stopped = [call.args[0] for call in client.stop.await_args_list]

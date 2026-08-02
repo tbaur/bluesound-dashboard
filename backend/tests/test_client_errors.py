@@ -170,6 +170,12 @@ async def test_sync_fallback_paths(settings: Settings) -> None:
     respx.get("http://192.168.1.20:11000/RemoveSlave").mock(
         return_value=httpx.Response(500, content=b"")
     )
+    respx.get("http://192.168.1.21:11000/SyncStatus").mock(
+        return_value=httpx.Response(
+            200,
+            content=b"<SyncStatus id='192.168.1.21:11000' name='Patio'/>",
+        )
+    )
     client = BluOSClient(settings)
     try:
         assert await client.add_sync_slave("192.168.1.20", "192.168.1.21") is True

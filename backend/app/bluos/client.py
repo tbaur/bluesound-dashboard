@@ -6,6 +6,7 @@ import asyncio
 import logging
 import re
 import time
+import xml.etree.ElementTree as ET
 from typing import Any
 from urllib.parse import quote, urljoin, urlparse
 
@@ -1017,6 +1018,90 @@ class BluOSClient:
             await self._get(ip, "/Preset", query=f"id={preset_id}", control=True)
         ) is not None
 
+    # Orphan ungroup verification (BluOS may need a short settle after RemoveSlave).
+    _ungroup_verify_attempts = 6
+    _ungroup_verify_delay = 0.25
+
+    @staticmethod
+    def _bluos_response_ok(content: bytes | None) -> bool:
+        """True when BluOS returned a non-error XML body."""
+        if not content:
+            return False
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            return False
+        tag = root.tag.lower()
+        if tag == "error" or root.find("error") is not None:
+            return False
+        # Some firmwares wrap errors as <response><error>…</error></response>.
+        if tag.endswith("error"):
+            return False
+        return True
+
+    async def player_is_ungrouped(self, endpoint: str) -> bool | None:
+        """Return True if standalone, False if still has a master, None if unreachable."""
+        resolved = self._resolve_target(endpoint)
+        if not resolved:
+            return None
+        ep = format_endpoint(*resolved)
+        raw = await self._get(ep, "/SyncStatus")
+        if not self._bluos_response_ok(raw):
+            return None
+        assert raw is not None
+        sync = self._parse_sync(raw, ep)
+        return not bool(sync.get("master"))
+
+    async def _wait_until_ungrouped(self, slave_ep: str) -> bool:
+        attempts = max(1, self._ungroup_verify_attempts)
+        delay = max(0.0, self._ungroup_verify_delay)
+        for _ in range(attempts):
+            state = await self.player_is_ungrouped(slave_ep)
+            if state is True:
+                return True
+            if delay:
+                await asyncio.sleep(delay)
+        return (await self.player_is_ungrouped(slave_ep)) is True
+
+    async def _ungroup_via_reparent(
+        self,
+        slave_ep: str,
+        donor_endpoints: list[str],
+    ) -> bool:
+        """Clear orphaned ``master reconnecting`` by briefly attaching to a live donor."""
+        slave = self._resolve_target(slave_ep)
+        if not slave:
+            return False
+        slave_host, slave_port = slave
+        slave_ep = format_endpoint(slave_host, slave_port)
+        remove_query = f"slave={slave_host}&port={slave_port}"
+
+        for donor in donor_endpoints:
+            donor_resolved = self._resolve_target(donor)
+            if not donor_resolved:
+                continue
+            donor_ep = format_endpoint(*donor_resolved)
+            if donor_ep == slave_ep:
+                continue
+            if not await self.add_sync_slave(donor_ep, slave_ep):
+                continue
+            for _ in range(3):
+                res = await self._get(
+                    donor_ep,
+                    "/RemoveSlave",
+                    query=remove_query,
+                    control=True,
+                )
+                if self._bluos_response_ok(res) and await self._wait_until_ungrouped(slave_ep):
+                    return True
+            logger.error(
+                "reparent_ungroup_failed slave=%s donor=%s",
+                slave_ep,
+                donor_ep,
+            )
+            return False
+        return False
+
     async def add_sync_slave(self, master_target: str, slave_target: str) -> bool:
         master = self._resolve_target(master_target)
         slave = self._resolve_target(slave_target)
@@ -1031,13 +1116,23 @@ class BluOSClient:
             query=f"slave={slave_ip}&port={slave_port}",
             control=True,
         )
-        if ok is not None:
+        if self._bluos_response_ok(ok):
             return True
-        return (
-            await self._get(master_ep, "/Sync", query=f"slave={slave_ip}", control=True)
-        ) is not None
+        legacy = await self._get(master_ep, "/Sync", query=f"slave={slave_ip}", control=True)
+        return self._bluos_response_ok(legacy)
 
-    async def remove_sync_slave(self, master_target: str, slave_target: str) -> bool:
+    async def remove_sync_slave(
+        self,
+        master_target: str,
+        slave_target: str,
+        *,
+        donor_endpoints: list[str] | None = None,
+    ) -> bool:
+        """Remove slave from a sync group.
+
+        Prefer ``RemoveSlave`` on the primary. If the primary is offline (orphaned
+        reconnecting group), try the slave, then reparent onto a live donor and remove.
+        """
         master = self._resolve_target(master_target)
         slave = self._resolve_target(slave_target)
         if not master or not slave:
@@ -1045,14 +1140,23 @@ class BluOSClient:
         master_ip, master_port = master
         slave_ip, slave_port = slave
         master_ep = format_endpoint(master_ip, master_port)
-        ok = await self._get(
-            master_ep,
-            "/RemoveSlave",
-            query=f"slave={slave_ip}&port={slave_port}",
-            control=True,
-        )
-        if ok is not None:
+        slave_ep = format_endpoint(slave_ip, slave_port)
+        remove_query = f"slave={slave_ip}&port={slave_port}"
+        legacy_query = f"remove={slave_ip}"
+
+        async def _try_remove(on_ep: str) -> bool:
+            for path, query in (("/RemoveSlave", remove_query), ("/Sync", legacy_query)):
+                res = await self._get(on_ep, path, query=query, control=True)
+                if self._bluos_response_ok(res) and await self._wait_until_ungrouped(slave_ep):
+                    return True
+            return False
+
+        if await _try_remove(master_ep) or await _try_remove(slave_ep):
             return True
-        return (
-            await self._get(master_ep, "/Sync", query=f"remove={slave_ip}", control=True)
-        ) is not None
+
+        # Dead primary leaves slaves stuck with reconnecting=true; API self-unjoin
+        # returns <error>no slave available as new master</error>.
+        donors = list(donor_endpoints or [])
+        if await self._ungroup_via_reparent(slave_ep, donors):
+            return True
+        return False
