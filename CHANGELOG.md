@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.7.1](https://github.com/tbaur/bluesound-dashboard/compare/v0.7.0...v0.7.1) (2026-08-03)
+
+
+### Documentation
+
+* refresh fleet README screenshot ([#45](https://github.com/tbaur/bluesound-dashboard/issues/45)) ([83cdda0](https://github.com/tbaur/bluesound-dashboard/commit/83cdda0d7e69a28261565130403b33db03696e82))
+
 ## [0.7.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.6.0...v0.7.0) (2026-08-02)
 
 
