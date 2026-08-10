@@ -2,6 +2,18 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.7.0...v0.8.0) (2026-08-10)
+
+
+### Features
+
+* **fleet:** auto-switch sort to Sync when groups form ([#49](https://github.com/tbaur/bluesound-dashboard/issues/49)) ([7ff1652](https://github.com/tbaur/bluesound-dashboard/commit/7ff1652bb055e99e677f492bcaf81d9c34de8fd4))
+
+
+### Documentation
+
+* refresh fleet README screenshot ([#45](https://github.com/tbaur/bluesound-dashboard/issues/45)) ([83cdda0](https://github.com/tbaur/bluesound-dashboard/commit/83cdda0d7e69a28261565130403b33db03696e82))
+
 ## [0.7.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.6.0...v0.7.0) (2026-08-02)
 
 
