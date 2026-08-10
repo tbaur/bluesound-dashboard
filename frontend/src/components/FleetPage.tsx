@@ -14,6 +14,7 @@ import { APP_VERSION, REPO_URL } from '@/version';
 
 export function FleetPage() {
   const devices = useFleetStore((s) => s.devices);
+  const sync = useFleetStore((s) => s.sync);
   const loading = useFleetStore((s) => s.loading);
   const refreshing = useFleetStore((s) => s.refreshing);
   const connection = useFleetStore((s) => s.connection);
@@ -23,6 +24,16 @@ export function FleetPage() {
   const refresh = useFleetStore((s) => s.refresh);
   const discoveryMethod = useFleetStore((s) => s.discoveryMethod);
   const [sortMode, setSortMode] = useState<FleetSortMode>('name');
+  const [autoSyncedForGroups, setAutoSyncedForGroups] = useState(false);
+  const hasRuntimeGroups = (sync?.groups.length ?? 0) > 0;
+
+  // Cluster by sync when a multi-room group appears (still toggleable afterward).
+  if (hasRuntimeGroups && !autoSyncedForGroups) {
+    setAutoSyncedForGroups(true);
+    setSortMode('sync');
+  } else if (!hasRuntimeGroups && autoSyncedForGroups) {
+    setAutoSyncedForGroups(false);
+  }
 
   const sorted = useMemo(
     () => sortDevices(devices, sortMode),
