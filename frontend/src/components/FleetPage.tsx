@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { FleetBar } from '@/components/GlobalVolumeControl';
 import { PlayerRow } from '@/components/PlayerCard';
 import { StatusPills } from '@/components/StatusPills';
@@ -24,14 +24,16 @@ export function FleetPage() {
   const refresh = useFleetStore((s) => s.refresh);
   const discoveryMethod = useFleetStore((s) => s.discoveryMethod);
   const [sortMode, setSortMode] = useState<FleetSortMode>('name');
+  const [autoSyncedForGroups, setAutoSyncedForGroups] = useState(false);
   const hasRuntimeGroups = (sync?.groups.length ?? 0) > 0;
 
   // Cluster by sync when a multi-room group appears (still toggleable afterward).
-  useEffect(() => {
-    if (hasRuntimeGroups) {
-      setSortMode('sync');
-    }
-  }, [hasRuntimeGroups]);
+  if (hasRuntimeGroups && !autoSyncedForGroups) {
+    setAutoSyncedForGroups(true);
+    setSortMode('sync');
+  } else if (!hasRuntimeGroups && autoSyncedForGroups) {
+    setAutoSyncedForGroups(false);
+  }
 
   const sorted = useMemo(
     () => sortDevices(devices, sortMode),
