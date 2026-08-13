@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.8.1](https://github.com/tbaur/bluesound-dashboard/compare/v0.8.0...v0.8.1) (2026-08-13)
+
+
+### Bug Fixes
+
+* harden rate limits without breaking fleet loads ([#50](https://github.com/tbaur/bluesound-dashboard/issues/50)) ([2c09621](https://github.com/tbaur/bluesound-dashboard/commit/2c09621cd494a2869156f32b38fb75cf37cef9ae))
+
 ## [0.8.0](https://github.com/tbaur/bluesound-dashboard/compare/v0.7.0...v0.8.0) (2026-08-10)
 
 
