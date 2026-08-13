@@ -8,6 +8,7 @@ import time
 import pytest
 
 from app.bluos.client import RateLimiter
+from app.bluos.rate_limit import RateLimiter as RateLimiterDirect
 
 
 @pytest.mark.asyncio
@@ -27,3 +28,11 @@ async def test_rate_limiter_does_not_hold_lock_across_sleep() -> None:
     elapsed = time.monotonic() - t0
     assert elapsed < 0.12
     assert len(started) == 2
+
+
+@pytest.mark.asyncio
+async def test_acquire_returns_false_during_cooldown() -> None:
+    limiter = RateLimiterDirect(0.2)
+    assert await limiter.acquire("client-a") is True
+    assert await limiter.acquire("client-a") is False
+    assert await limiter.acquire("client-b") is True

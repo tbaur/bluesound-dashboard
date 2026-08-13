@@ -1,0 +1,59 @@
+"""Server-sent events for the live fleet."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from collections.abc import AsyncIterator
+
+from fastapi import APIRouter, Request
+from fastapi.responses import StreamingResponse
+
+from app.api.common import StateDep
+from app.services.sync import build_sync_state
+
+router = APIRouter()
+
+@router.get("/events")
+async def events(request: Request, state: StateDep) -> StreamingResponse:
+    keepalive = state.settings.sse_keepalive_seconds
+
+    async def event_generator() -> AsyncIterator[str]:
+        # Initial snapshot
+        snapshot = state.discovery.snapshot
+        initial = json.dumps(
+            {
+                "type": "fleet",
+                "data": {
+                    "devices": [d.model_dump() for d in snapshot.devices],
+                    "discovered_at": snapshot.discovered_at,
+                    "sync": build_sync_state(snapshot.devices).model_dump(),
+                },
+            },
+            default=str,
+        )
+        yield f"data: {initial}\n\n"
+        queue = await state.events.subscribe()
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    payload = await asyncio.wait_for(queue.get(), timeout=keepalive)
+                    yield f"data: {payload}\n\n"
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
+                    yield ": keepalive\n\n"
+        finally:
+            await state.events.unsubscribe(queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )

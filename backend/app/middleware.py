@@ -11,7 +11,7 @@ from urllib.parse import parse_qs
 from starlette.datastructures import MutableHeaders
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from app.bluos.client import RateLimiter
+from app.bluos.rate_limit import RateLimiter
 from app.config import get_settings
 from app.logging import request_id_var
 
@@ -42,6 +42,8 @@ _SECURITY_HEADERS = {
     "Referrer-Policy": "no-referrer",
 }
 
+# Cheap in-memory GETs (/devices, /sync) overlap on UI mount / Strict Mode;
+# 429ing them surfaces "Too many requests" while an earlier load still succeeds.
 _EXPENSIVE_GET_PATHS = frozenset({"/api/v1/fleet/upgrades"})
 _AUTH_EXEMPT_PATHS = frozenset(
     {
@@ -96,7 +98,20 @@ class RequestContextMiddleware:
         ) or (method == "GET" and path in _EXPENSIVE_GET_PATHS)
         if rate_limit:
             client_host = _client_ip(scope, peer, self._trusted_proxies)
-            await self._api_rate.wait(client_host)
+            bucket = f"{client_host}:{method}:{path}"
+            if not await self._api_rate.acquire(bucket):
+                await _send_json(
+                    send,
+                    429,
+                    {
+                        "error": "rate_limited",
+                        "message": "Too many requests",
+                        "code": "rate_limited",
+                        "request_id": _header_value(scope, b"x-request-id") or "-",
+                    },
+                    extra_headers=[(b"retry-after", b"1")],
+                )
+                return
 
         request_id = _header_value(scope, b"x-request-id") or str(uuid.uuid4())
         scope.setdefault("state", {})
@@ -176,18 +191,26 @@ def _authorized(scope: Scope, expected: str) -> bool:
     return False
 
 
-async def _send_json(send: Send, status: int, body: dict[str, str]) -> None:
+async def _send_json(
+    send: Send,
+    status: int,
+    body: dict[str, str],
+    extra_headers: list[tuple[bytes, bytes]] | None = None,
+) -> None:
     import json
 
     payload = json.dumps(body).encode("utf-8")
+    headers = [
+        (b"content-type", b"application/json"),
+        (b"content-length", str(len(payload)).encode("ascii")),
+    ]
+    if extra_headers:
+        headers.extend(extra_headers)
     await send(
         {
             "type": "http.response.start",
             "status": status,
-            "headers": [
-                (b"content-type", b"application/json"),
-                (b"content-length", str(len(payload)).encode("ascii")),
-            ],
+            "headers": headers,
         }
     )
     await send({"type": "http.response.body", "body": payload})

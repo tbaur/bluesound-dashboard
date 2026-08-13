@@ -70,6 +70,31 @@ describe('api client', () => {
     await expect(api.toggle('player-1')).resolves.toBeUndefined();
   });
 
+  it('times out when the server never responds', async () => {
+    vi.useFakeTimers();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        });
+      }),
+    );
+    const pending = api.listDevices();
+    const expectation = expect(pending).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(ApiError);
+      const apiErr = err as ApiError;
+      expect(apiErr.status).toBe(408);
+      expect(apiErr.code).toBe('timeout');
+      return true;
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+    await expectation;
+    vi.useRealTimers();
+  });
+
   it('posts settings writes with control_path', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

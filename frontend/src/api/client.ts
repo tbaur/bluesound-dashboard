@@ -18,6 +18,7 @@ import { ApiError } from './types';
 import { apiToken } from './auth';
 
 const BASE = '/api/v1';
+const FETCH_TIMEOUT_MS = 15_000;
 
 async function parseError(response: Response): Promise<ApiError> {
   try {
@@ -31,6 +32,27 @@ async function parseError(response: Response): Promise<ApiError> {
       request_id: response.headers.get('X-Request-ID') || '-',
     });
   }
+}
+
+function abortWhenEither(left: AbortSignal, right: AbortSignal): AbortSignal {
+  const merged = new AbortController();
+  const abort = () => merged.abort();
+  if (left.aborted || right.aborted) {
+    abort();
+    return merged.signal;
+  }
+  left.addEventListener('abort', abort, { once: true });
+  right.addEventListener('abort', abort, { once: true });
+  return merged.signal;
+}
+
+function timeoutError(): ApiError {
+  return new ApiError(408, {
+    error: 'timeout',
+    message: 'Request timed out',
+    code: 'timeout',
+    request_id: '-',
+  });
 }
 
 async function request<T>(
@@ -48,18 +70,36 @@ async function request<T>(
   }
   const rest = { ...(init ?? {}) } as RequestInit & { json?: unknown };
   delete rest.json;
-  const response = await fetch(`${BASE}${path}`, {
-    ...rest,
-    headers,
-    body,
-  });
-  if (!response.ok) {
-    throw await parseError(response);
+  const timeoutController = new AbortController();
+  const timeoutId = window.setTimeout(() => timeoutController.abort(), FETCH_TIMEOUT_MS);
+  const signal = rest.signal
+    ? abortWhenEither(rest.signal, timeoutController.signal)
+    : timeoutController.signal;
+  try {
+    const response = await fetch(`${BASE}${path}`, {
+      ...rest,
+      headers,
+      body,
+      signal,
+    });
+    if (!response.ok) {
+      throw await parseError(response);
+    }
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    return (await response.json()) as T;
+  } catch (err) {
+    if (err instanceof ApiError) {
+      throw err;
+    }
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw timeoutError();
+    }
+    throw err;
+  } finally {
+    window.clearTimeout(timeoutId);
   }
-  if (response.status === 204) {
-    return undefined as T;
-  }
-  return (await response.json()) as T;
 }
 
 export const api = {

@@ -8,7 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.config import Settings, get_settings
-from app.models import PlayerStatus, SyncRole
+from app.models import PlayerStatus, SyncRole, UpgradeStatus
 from tests.helpers import app_with_players
 
 
@@ -187,6 +187,56 @@ async def test_rate_limiter_prunes_when_over_cap() -> None:
     for i in range(8):
         await limiter.wait(f"k{i}")
     assert len(limiter._last) <= 4
+
+
+@pytest.mark.asyncio
+async def test_hot_get_rate_limit_returns_429(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    get_settings.cache_clear()
+    settings = Settings(
+        discovery_cache_ttl=0,
+        poll_interval=60,
+        allow_non_private_ips=True,
+        control_rate_limit_seconds=0,
+        api_rate_limit_seconds=5.0,
+        cors_origins="http://127.0.0.1:8765",
+    )
+    monkeypatch.setattr("app.main.get_settings", lambda: settings)
+    monkeypatch.setattr("app.middleware.get_settings", lambda: settings)
+    app, client, _, _ = await app_with_players(settings, monkeypatch)
+    client.get_upgrade_status = AsyncMock(  # type: ignore[method-assign]
+        return_value=UpgradeStatus(
+            device_id="player-kitchen",
+            name="Kitchen",
+            ip="192.168.1.20",
+            current_fw="4.16.6",
+            update_available=False,
+            message="ok",
+            ok=True,
+        )
+    )
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http:
+        first = await http.get("/api/v1/fleet/upgrades")
+        second = await http.get("/api/v1/fleet/upgrades")
+        assert first.status_code == 200
+        assert second.status_code == 429
+        body = second.json()
+        assert body["code"] == "rate_limited"
+        assert second.headers.get("retry-after") == "1"
+
+        devices_a = await http.get("/api/v1/devices")
+        devices_b = await http.get("/api/v1/devices")
+        assert devices_a.status_code == 200
+        assert devices_b.status_code == 200
+
+        sync_a = await http.get("/api/v1/sync")
+        sync_b = await http.get("/api/v1/sync")
+        assert sync_a.status_code == 200
+        assert sync_b.status_code == 200
+    await client.aclose()
+    get_settings.cache_clear()
 
 
 @pytest.mark.asyncio

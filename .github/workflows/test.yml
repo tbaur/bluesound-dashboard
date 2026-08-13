@@ -45,6 +45,8 @@ jobs:
       - name: Coverage gate
         # Separate step: pytest-cov can print FAIL without non-zero exit in some versions.
         run: coverage report --fail-under=90
+      - name: pip-audit
+        run: pip-audit --progress-spinner off
 
   frontend:
     name: Frontend
@@ -69,6 +71,6 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
       - name: Test
-        run: npm test
+        run: npx vitest run --coverage
       - name: Build
         run: npm run build
