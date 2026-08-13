@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from app.bluos.client import BluOSClient
-from app.config import Settings
+from app.config import Settings, get_settings
 from app.discovery.service import DiscoveryService
 from app.main import create_app
 from app.models import PlayerStatus
@@ -26,6 +26,20 @@ async def app_with_players(
 
     monkeypatch.setattr(DiscoveryService, "refresh", seeded)
     monkeypatch.setattr(DiscoveryService, "get_devices", seeded)
+
+    # Default production spacing is 50ms; tests fire many requests back-to-back.
+    # Opt in to 429 behavior by passing api_rate_limit_seconds other than the default.
+    default_api_rate = Settings.model_fields["api_rate_limit_seconds"].default
+    if settings.api_rate_limit_seconds == default_api_rate:
+        settings = settings.model_copy(update={"api_rate_limit_seconds": 0.0})
+
+    def _settings() -> Settings:
+        return settings
+
+    get_settings.cache_clear()
+    monkeypatch.setattr("app.config.get_settings", _settings)
+    monkeypatch.setattr("app.main.get_settings", _settings)
+    monkeypatch.setattr("app.middleware.get_settings", _settings)
 
     app = create_app()
     client = BluOSClient(settings)

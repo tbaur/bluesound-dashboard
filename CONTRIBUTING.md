@@ -98,12 +98,15 @@ ruff check app tests
 mypy app
 pytest --cov=app --cov-report=term-missing
 coverage report --fail-under=90  # CI aggregate gate (total ≥90%; individual modules may be lower)
+pip-audit --progress-spinner off
+# Optional: pip install -e ".[dev]" -c requirements.lock (lock is a 3.14 freeze snapshot)
 
 # Frontend
 cd frontend
 npm run lint
 npm run typecheck
 npm test
+npx vitest run --coverage  # CI gate: lines/statements ≥60%
 npm run build
 ```
 
@@ -116,7 +119,7 @@ bluesound-dashboard/
 ├── backend/app/          # FastAPI app (discovery, BluOS client, API, poller)
 ├── backend/tests/        # Backend tests (≥90% coverage required in CI)
 ├── frontend/src/         # React UI (Vite on :8765)
-├── frontend/tests/       # Frontend unit tests
+├── frontend/tests/       # Frontend unit tests (coverage gate in CI)
 ├── docs/                 # Configuration + runbook
 ├── docs/images/          # README screenshots
 ├── CODE_OF_CONDUCT.md

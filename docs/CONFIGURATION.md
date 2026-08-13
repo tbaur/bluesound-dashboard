@@ -69,7 +69,7 @@ NAD CI multi-zone chassis expose each zone as its own BluOS endpoint (often `:11
 | `BSD_DEVICE_HTTP_TIMEOUT` | `3` | Per-device HTTP timeout |
 | `BSD_MAX_CONCURRENT_DEVICE_CALLS` | `20` | Cap concurrent BluOS HTTP calls |
 | `BSD_CONTROL_RATE_LIMIT_SECONDS` | `0.1` | Per **device endpoint** (`ip:port`) spacing for outbound BluOS control and web-UI writes |
-| `BSD_API_RATE_LIMIT_SECONDS` | `0.05` | Per **HTTP client IP** spacing for mutating API requests and expensive GETs (`/api/v1/fleet/upgrades`). Behind a reverse proxy, set `BSD_TRUSTED_PROXIES` so `X-Forwarded-For` is honored |
+| `BSD_API_RATE_LIMIT_SECONDS` | `0.05` | Minimum spacing per **HTTP client IP + method + path** for mutating API requests and expensive GETs (`/api/v1/fleet/upgrades`). Excess requests return **429** (they do not wait). Cheap in-memory GETs such as `/api/v1/devices` and `/api/v1/sync` are not throttled so overlapping UI loads (mount, Strict Mode, in-flight reload) cannot fail. Outbound BluOS control still uses sleep-based spacing (`BSD_CONTROL_RATE_LIMIT_SECONDS`). Behind a reverse proxy, set `BSD_TRUSTED_PROXIES` so `X-Forwarded-For` is honored |
 | `BSD_CIRCUIT_FAILURE_THRESHOLD` | `5` | Failures before slow-poll |
 | `BSD_CIRCUIT_SLOW_POLL_SECONDS` | `15` | Slow-poll interval after circuit open |
 | `BSD_FLEET_UPGRADES_CACHE_SECONDS` | `30` | Cache TTL for `GET /api/v1/fleet/upgrades` |

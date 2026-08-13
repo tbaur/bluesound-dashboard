@@ -18,6 +18,7 @@ htmlcov/
 # Node / frontend
 frontend/node_modules/
 frontend/dist/
+frontend/coverage/
 frontend/*.tsbuildinfo
 
 # Env / secrets
