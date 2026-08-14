@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.0.1](https://github.com/tbaur/bluos-dashboard/compare/v1.0.0...v1.0.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* keep the house remote stable through skip, stop, and play ([#65](https://github.com/tbaur/bluos-dashboard/issues/65)) ([f1f3764](https://github.com/tbaur/bluos-dashboard/commit/f1f37645423ef8197858b8de492aee0af7fd65b2))
+
 ## [1.0.0](https://github.com/tbaur/bluos-dashboard/compare/v0.10.0...v1.0.0) (2026-08-14)
 
 
