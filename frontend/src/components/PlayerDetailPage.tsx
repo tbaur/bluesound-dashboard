@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { api } from '@/api/client';
-import type { AudioInput, DiagnoseResponse, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
+import type { AudioInput, DiagnoseResponse, PlayerStatus, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
 import { DeviceSettingsPanel } from '@/components/DeviceSettingsPanel';
 import { PresenceBar } from '@/components/PresenceBar';
 import { SeekBar } from '@/components/SeekBar';
@@ -20,6 +20,7 @@ import {
   presenceSegments,
 } from '@/lib/health';
 import { META_SEP, joinMeta } from '@/lib/meta';
+import { reorderQueue } from '@/lib/queue';
 import { streamQualityLabel } from '@/lib/streamQuality';
 import { formatPlayerUptime } from '@/lib/uptime';
 import { useFleetStore } from '@/store/fleetStore';
@@ -63,73 +64,44 @@ export function PlayerDetailPage() {
   const [upgrade, setUpgrade] = useState<UpgradeStatus | null>(null);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const scrapeAbort = useRef<AbortController | null>(null);
+
+  const interruptScrapes = () => {
+    scrapeAbort.current?.abort();
+  };
 
   useEffect(() => {
     if (!id) return;
-    let cancelled = false;
-    (async () => {
-      const results = await Promise.allSettled([
-        api.getQueue(id),
-        api.getInputs(id),
-        api.getPresets(id),
-        api.getBluetooth(id),
-      ]);
-      if (cancelled) return;
-      const failures: string[] = [];
-      const [q, i, p, b] = results;
-      if (q.status === 'fulfilled') setQueue(q.value);
-      else failures.push('queue');
-      if (i.status === 'fulfilled') setInputs(i.value);
-      else failures.push('inputs');
-      if (p.status === 'fulfilled') setPresets(p.value);
-      else failures.push('presets');
-      if (b.status === 'fulfilled') {
-        setBluetoothSupported(b.value.supported);
-        setBluetooth(b.value.supported ? (b.value.mode ?? '') : '');
-      } else {
-        setBluetoothSupported(false);
-        failures.push('bluetooth');
-      }
-      setDetailError(failures.length ? `Failed to load: ${failures.join(', ')}` : null);
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
-
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    const load = async () => {
-      try {
-        const value = await api.diagnose(id);
-        if (!cancelled) setDiag(value);
-        return value;
-      } catch {
-        return null;
-      }
-    };
-    void (async () => {
-      const first = await load();
-      if (cancelled || first?.uptime) return;
-      await new Promise((resolve) => window.setTimeout(resolve, 1500));
-      if (!cancelled) await load();
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [id]);
-
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
+    const ac = new AbortController();
     void api
-      .getUpgrade(id)
+      .getQueue(id, { signal: ac.signal })
       .then((value) => {
-        if (!cancelled) setUpgrade(value);
+        if (!ac.signal.aborted) setQueue(value);
       })
       .catch(() => {
-        if (!cancelled) {
+        if (!ac.signal.aborted) setDetailError('Failed to load: queue');
+      });
+    return () => ac.abort();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const ac = new AbortController();
+    scrapeAbort.current = ac;
+    void (async () => {
+      try {
+        const value = await api.diagnose(id, { signal: ac.signal });
+        if (!ac.signal.aborted) setDiag(value);
+      } catch {
+        /* aborted or failed — Device card keeps "—" */
+      }
+      if (ac.signal.aborted) return;
+      try {
+        const value = await api.getUpgrade(id, { signal: ac.signal });
+        if (!ac.signal.aborted) setUpgrade(value);
+      } catch {
+        if (!ac.signal.aborted) {
           setUpgrade({
             device_id: id,
             name: '',
@@ -140,11 +112,44 @@ export function PlayerDetailPage() {
             ok: false,
           });
         }
-      });
-    return () => {
-      cancelled = true;
-    };
+      }
+    })();
+    return () => ac.abort();
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !advancedOpen) return;
+    const ac = new AbortController();
+    void (async () => {
+      const failures: string[] = [];
+      try {
+        const value = await api.getInputs(id, { signal: ac.signal });
+        if (!ac.signal.aborted) setInputs(value);
+      } catch {
+        failures.push('inputs');
+      }
+      try {
+        const value = await api.getPresets(id, { signal: ac.signal });
+        if (!ac.signal.aborted) setPresets(value);
+      } catch {
+        failures.push('presets');
+      }
+      try {
+        const value = await api.getBluetooth(id, { signal: ac.signal });
+        if (!ac.signal.aborted) {
+          setBluetoothSupported(value.supported);
+          setBluetooth(value.supported ? (value.mode ?? '') : '');
+        }
+      } catch {
+        setBluetoothSupported(false);
+        failures.push('bluetooth');
+      }
+      if (!ac.signal.aborted && failures.length) {
+        setDetailError(`Failed to load: ${failures.join(', ')}`);
+      }
+    })();
+    return () => ac.abort();
+  }, [id, advancedOpen]);
 
   useEffect(() => {
     if (device) nudgeBaseline.current = device.volume;
@@ -225,6 +230,28 @@ export function PlayerDetailPage() {
   const slowPoll =
     Boolean(health) && device.consecutive_failures >= (health?.circuit_failure_threshold ?? 5);
 
+  const runDeviceControl = (
+    action: () => Promise<void>,
+    optimistic?: Partial<PlayerStatus>,
+  ) => {
+    interruptScrapes();
+    void control(device.id, action, optimistic);
+  };
+
+  const moveQueue = (fromIndex: number, toIndex: number) => {
+    if (!queue) return;
+    interruptScrapes();
+    setQueue(reorderQueue(queue, fromIndex, toIndex));
+    void (async () => {
+      await control(device.id, () => api.moveQueueItem(device.id, fromIndex, toIndex));
+      try {
+        setQueue(await api.getQueue(device.id));
+      } catch {
+        /* keep optimistic order */
+      }
+    })();
+  };
+
   return (
     <div className="app-shell dossier">
       <header className="dossier-header">
@@ -296,7 +323,7 @@ export function PlayerDetailPage() {
                 onSeek={
                   device.can_seek
                     ? (seconds) =>
-                        void control(device.id, () => api.seek(device.id, seconds), {
+                        runDeviceControl(() => api.seek(device.id, seconds), {
                           secs: seconds,
                         })
                     : undefined
@@ -304,15 +331,14 @@ export function PlayerDetailPage() {
               />
             )}
             <div className="transport" style={{ marginTop: 14 }}>
-              <button type="button" className="btn" onClick={() => void control(device.id, () => api.back(device.id))}>
+              <button type="button" className="btn" onClick={() => runDeviceControl(() => api.back(device.id))}>
                 Prev
               </button>
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={() =>
-                  void control(
-                    device.id,
+                  runDeviceControl(
                     () => api.toggle(device.id),
                     { state: playing ? 'pause' : 'play' },
                   )
@@ -323,11 +349,11 @@ export function PlayerDetailPage() {
               <button
                 type="button"
                 className="btn"
-                onClick={() => void control(device.id, () => api.stop(device.id), { state: 'stop' })}
+                onClick={() => runDeviceControl(() => api.stop(device.id), { state: 'stop' })}
               >
                 Stop
               </button>
-              <button type="button" className="btn" onClick={() => void control(device.id, () => api.skip(device.id))}>
+              <button type="button" className="btn" onClick={() => runDeviceControl(() => api.skip(device.id))}>
                 Next
               </button>
             </div>
@@ -454,7 +480,10 @@ export function PlayerDetailPage() {
         </div>
       </section>
 
-      <details className="panel panel-collapse">
+      <details
+        className="panel panel-collapse"
+        onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+      >
         <summary>
           <h2>Advanced</h2>
           <span className="card-meta">
@@ -483,12 +512,7 @@ export function PlayerDetailPage() {
                         className="btn btn-compact"
                         disabled={index === 0}
                         aria-label={`Move ${item.title} up`}
-                        onClick={() =>
-                          void control(device.id, async () => {
-                            await api.moveQueueItem(device.id, index, index - 1);
-                            setQueue(await api.getQueue(device.id));
-                          })
-                        }
+                        onClick={() => moveQueue(index, index - 1)}
                       >
                         ↑
                       </button>
@@ -497,12 +521,7 @@ export function PlayerDetailPage() {
                         className="btn btn-compact"
                         disabled={index >= queue.items.length - 1}
                         aria-label={`Move ${item.title} down`}
-                        onClick={() =>
-                          void control(device.id, async () => {
-                            await api.moveQueueItem(device.id, index, index + 1);
-                            setQueue(await api.getQueue(device.id));
-                          })
-                        }
+                        onClick={() => moveQueue(index, index + 1)}
                       >
                         ↓
                       </button>
@@ -517,7 +536,7 @@ export function PlayerDetailPage() {
               style={{ marginTop: 12 }}
               onClick={() => {
                 if (window.confirm('Clear the queue on this player?')) {
-                  void control(device.id, async () => {
+                  runDeviceControl(async () => {
                     await api.clearQueue(device.id);
                     setQueue(await api.getQueue(device.id));
                   });
@@ -542,7 +561,7 @@ export function PlayerDetailPage() {
                     className={input.selected ? 'btn btn-primary' : 'btn'}
                     disabled={input.selected}
                     onClick={() =>
-                      void control(device.id, async () => {
+                      runDeviceControl(async () => {
                         await api.setInput(device.id, input.id || input.name);
                         setInputs(await api.getInputs(device.id));
                       })
@@ -567,7 +586,7 @@ export function PlayerDetailPage() {
                     <button
                       type="button"
                       className="btn"
-                      onClick={() => void control(device.id, () => api.playPreset(device.id, preset.id))}
+                      onClick={() => runDeviceControl(() => api.playPreset(device.id, preset.id))}
                     >
                       Play
                     </button>
@@ -595,7 +614,7 @@ export function PlayerDetailPage() {
                     type="button"
                     className={bluetooth === label ? 'btn btn-primary' : 'btn'}
                     onClick={() =>
-                      void control(device.id, async () => {
+                      runDeviceControl(async () => {
                         await api.setBluetooth(device.id, mode);
                         const next = await api.getBluetooth(device.id);
                         setBluetoothSupported(next.supported);
@@ -610,7 +629,7 @@ export function PlayerDetailPage() {
             </section>
           ) : null}
 
-          <DeviceSettingsPanel deviceId={device.id} />
+          {advancedOpen ? <DeviceSettingsPanel deviceId={device.id} /> : null}
 
           <section>
             <h3>Maintenance</h3>
@@ -658,7 +677,7 @@ export function PlayerDetailPage() {
                       `Reboot ${device.name}? Playback will stop until it comes back.`,
                     )
                   ) {
-                    void control(device.id, () => api.reboot(device.id));
+                    void runDeviceControl(() => api.reboot(device.id));
                   }
                 }}
               >

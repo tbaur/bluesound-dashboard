@@ -12,6 +12,7 @@ const getBluetooth = vi.fn();
 const diagnose = vi.fn();
 const getUpgrade = vi.fn();
 const reboot = vi.fn();
+const moveQueueItem = vi.fn();
 
 vi.mock('@/api/client', () => ({
   api: {
@@ -22,6 +23,7 @@ vi.mock('@/api/client', () => ({
     diagnose: (...args: unknown[]) => diagnose(...args),
     getUpgrade: (...args: unknown[]) => getUpgrade(...args),
     reboot: (...args: unknown[]) => reboot(...args),
+    moveQueueItem: (...args: unknown[]) => moveQueueItem(...args),
   },
 }));
 
@@ -115,6 +117,7 @@ describe('PlayerDetailPage maintenance', () => {
       ok: true,
     });
     reboot.mockReset().mockResolvedValue(undefined);
+    moveQueueItem.mockReset().mockResolvedValue(undefined);
 
     useFleetStore.setState({
       devices: [sample],
@@ -143,7 +146,7 @@ describe('PlayerDetailPage maintenance', () => {
   it('auto-checks upgrade on load and again from the button', async () => {
     renderPlayer();
     await screen.findByText('No update available on this player.');
-    expect(getUpgrade).toHaveBeenCalledWith('player-kitchen');
+    expect(getUpgrade.mock.calls[0]?.[0]).toBe('player-kitchen');
 
     const before = getUpgrade.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Check for upgrade' }));
@@ -202,7 +205,46 @@ describe('PlayerDetailPage maintenance', () => {
     });
     renderPlayer();
     expect(await screen.findByText('1d 13h')).toBeInTheDocument();
-    expect(diagnose).toHaveBeenCalledWith('player-kitchen');
+    expect(diagnose.mock.calls[0]?.[0]).toBe('player-kitchen');
+  });
+
+  it('aborts diagnose when leaving the player page', async () => {
+    let signal: AbortSignal | undefined;
+    diagnose.mockImplementation((_id: string, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+    });
+    const { unmount } = renderPlayer();
+    await waitFor(() => expect(signal).toBeDefined());
+    unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('moves a queue track down without waiting for diagnose', async () => {
+    getQueue
+      .mockResolvedValueOnce({
+        count: 2,
+        items: [
+          { title: 'First', artist: 'A', album: '', image: '', service: '' },
+          { title: 'Second', artist: 'B', album: '', image: '', service: '' },
+        ],
+      })
+      .mockResolvedValue({
+        count: 2,
+        items: [
+          { title: 'Second', artist: 'B', album: '', image: '', service: '' },
+          { title: 'First', artist: 'A', album: '', image: '', service: '' },
+        ],
+      });
+    diagnose.mockImplementation(() => new Promise(() => {}));
+    renderPlayer();
+    fireEvent.click(await screen.findByRole('button', { name: 'Move First down' }));
+    await waitFor(() => expect(moveQueueItem).toHaveBeenCalledWith('player-kitchen', 0, 1));
+    expect(screen.getByRole('button', { name: 'Move First up' })).toBeEnabled();
   });
 
   it('shows poller health on the device panel', async () => {

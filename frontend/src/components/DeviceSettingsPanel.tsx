@@ -27,12 +27,12 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
   const [drafts, setDrafts] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    let cancelled = false;
+    const ac = new AbortController();
     const key = `${deviceId}:${page}`;
     void (async () => {
       try {
-        const response = await api.getSettings(deviceId, page);
-        if (cancelled) return;
+        const response = await api.getSettings(deviceId, page, { signal: ac.signal });
+        if (ac.signal.aborted) return;
         const next: Record<string, string> = {};
         for (const setting of response.settings) {
           next[setting.id] = setting.value;
@@ -43,7 +43,7 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
         setError(null);
         setLoadedFor(key);
       } catch (err) {
-        if (cancelled) return;
+        if (ac.signal.aborted) return;
         setData(null);
         setValues({});
         setDrafts({});
@@ -55,9 +55,7 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
         );
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => ac.abort();
   }, [deviceId, page]);
 
   const loading = loadedFor !== `${deviceId}:${page}`;
