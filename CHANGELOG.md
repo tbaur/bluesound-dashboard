@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.1](https://github.com/tbaur/bluos-dashboard/compare/v0.9.0...v0.9.1) (2026-08-14)
+
+
+### Documentation
+
+* show current house remote screenshot on README ([2a3e667](https://github.com/tbaur/bluos-dashboard/commit/2a3e667bde998e506b8ca63b6bed4b09415222ec))
+
 ## [0.9.0](https://github.com/tbaur/bluos-dashboard/compare/v0.8.1...v0.9.0) (2026-08-14)
 
 
