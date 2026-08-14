@@ -87,7 +87,7 @@ All notable changes to this project are documented in this file.
 
 ### Features
 
-* initial bluesound-dashboard v0.1.0 ([beb9fe0](https://github.com/tbaur/bluos-dashboard/commit/beb9fe03fbea8d1a310510334c9ccf60503ce137))
+* initial bluos-dashboard v0.1.0 ([beb9fe0](https://github.com/tbaur/bluos-dashboard/commit/beb9fe03fbea8d1a310510334c9ccf60503ce137))
 
 
 ### Bug Fixes
