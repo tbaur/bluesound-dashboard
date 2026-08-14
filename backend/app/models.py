@@ -86,10 +86,6 @@ class RepeatRequest(BaseModel):
     state: Literal[0, 1, 2]
 
 
-class RebootRequest(BaseModel):
-    soft: bool = False
-
-
 class SyncEnableRequest(BaseModel):
     primary_id: str = Field(min_length=1, max_length=128)
 
@@ -128,6 +124,11 @@ class SettingOption(BaseModel):
     display_name: str = ""
 
 
+class SettingDependency(BaseModel):
+    name: str
+    value: str = ""
+
+
 class DeviceSetting(BaseModel):
     id: str
     name: str = ""
@@ -137,12 +138,18 @@ class DeviceSetting(BaseModel):
     description: str = ""
     explanation: str = ""
     disabled: bool = False
+    hide_if_disabled: bool = False
     control_path: str = ""
     min_value: float | None = None
     max_value: float | None = None
+    min_range: float | None = None
     step: float | None = None
     units: str = ""
+    pattern: str = ""
+    pattern_error: str = ""
+    refresh_after_write: bool = False
     options: list[SettingOption] = Field(default_factory=list)
+    dependencies: list[SettingDependency] = Field(default_factory=list)
     depends_on: str = ""
     depends_value: str = ""
 

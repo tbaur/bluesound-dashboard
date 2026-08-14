@@ -5,20 +5,42 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 VENV="${ROOT}/backend/.venv"
 PYTHON="${VENV}/bin/python"
-PIP="${VENV}/bin/pip"
 
 log() { printf '[install] %s\n' "$*"; }
 
+venv_recorded_path() {
+  awk -F' -m venv ' '/^command = / { print $2 }' "${VENV}/pyvenv.cfg" 2>/dev/null || true
+}
+
+venv_needs_recreate() {
+  if [[ ! -x "${PYTHON}" ]]; then
+    return 0
+  fi
+  if ! "${PYTHON}" -c "import sys" >/dev/null 2>&1; then
+    return 0
+  fi
+  local recorded
+  recorded="$(venv_recorded_path)"
+  if [[ -n "${recorded}" && "${recorded}" != "${VENV}" ]]; then
+    return 0
+  fi
+  return 1
+}
+
 log "backend: ensuring venv at backend/.venv"
-if [[ ! -x "${PYTHON}" ]]; then
+if venv_needs_recreate; then
+  if [[ -d "${VENV}" ]]; then
+    log "backend: recreating venv (moved or broken interpreter)"
+    rm -rf "${VENV}"
+  fi
   python3 -m venv "${VENV}"
 fi
 
 log "backend: pip install -e '.[dev]'"
 (
   cd "${ROOT}/backend"
-  "${PIP}" install -U pip
-  "${PIP}" install -e ".[dev]"
+  "${PYTHON}" -m pip install -U pip
+  "${PYTHON}" -m pip install -e ".[dev]"
 )
 
 log "frontend: npm ci"

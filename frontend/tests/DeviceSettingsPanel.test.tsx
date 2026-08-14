@@ -31,8 +31,14 @@ function setting(
     step: null,
     units: '',
     options: [],
+    dependencies: [],
     depends_on: '',
     depends_value: '',
+    hide_if_disabled: false,
+    min_range: null,
+    pattern: '',
+    pattern_error: '',
+    refresh_after_write: false,
     ...partial,
   };
 }
@@ -92,6 +98,9 @@ const audioPage: DeviceSettingsResponse = {
       kind: 'dual-range',
       value: '-90,-10',
       units: 'dB',
+      min_value: -90,
+      max_value: 0,
+      min_range: 30,
       control_path: '',
     }),
     setting({
@@ -305,6 +314,47 @@ describe('DeviceSettingsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reset All' }));
     expect(setSetting).not.toHaveBeenCalled();
     confirm.mockRestore();
+  });
+
+  it('does not write volume limits when the span is below minRange', async () => {
+    render(<DeviceSettingsPanel deviceId="player-kitchen" />);
+    await screen.findByText('Volume limits (dB)');
+
+    fireEvent.change(screen.getByLabelText('Volume limits (dB) low'), {
+      target: { value: '-20' },
+    });
+    fireEvent.change(screen.getByLabelText('Volume limits (dB) high'), {
+      target: { value: '0' },
+    });
+    expect(screen.getByRole('button', { name: 'Set' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Set' }));
+    expect(setSetting).not.toHaveBeenCalled();
+  });
+
+  it('shows Locked for a HomeKit-locked room name', async () => {
+    getSettings.mockImplementation(async (_id: string, page: string) =>
+      page === 'player'
+        ? {
+            page_id: 'player',
+            settings: [
+              setting({
+                id: 'nodename',
+                display_name: 'Room name',
+                kind: 'text',
+                value: 'Kitchen Speakers',
+                disabled: true,
+                control_path: '/Name',
+                explanation: 'Locked by Apple Home',
+              }),
+            ],
+          }
+        : audioPage,
+    );
+    render(<DeviceSettingsPanel deviceId="player-kitchen" />);
+    fireEvent.click(screen.getByRole('button', { name: 'Player' }));
+    await screen.findByText('Locked');
+    expect(screen.queryByRole('button', { name: 'Update' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Room name')).not.toBeInTheDocument();
   });
 
   it('surfaces ApiError from failed writes', async () => {

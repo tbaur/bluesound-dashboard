@@ -4,6 +4,8 @@ import {
   choiceOptionsForSetting,
   displayValue,
   isBooleanOn,
+  isDualRangeValid,
+  isTextValueValid,
   isVisible,
   orderChoiceOptions,
   selectedChoiceValue,
@@ -25,8 +27,14 @@ function setting(partial: Partial<DeviceSetting> & Pick<DeviceSetting, 'id'>): D
     step: null,
     units: '',
     options: [],
+    dependencies: [],
     depends_on: '',
     depends_value: '',
+    hide_if_disabled: false,
+    min_range: null,
+    pattern: '',
+    pattern_error: '',
+    refresh_after_write: false,
     ...partial,
   };
 }
@@ -112,6 +120,66 @@ describe('deviceSettings helpers', () => {
     });
     expect(isVisible(fixed, { mqaDisable: 'ON' })).toBe(false);
     expect(isVisible(fixed, { mqaDisable: 'OFF' })).toBe(true);
+  });
+
+  it('requires every dependsOn for Digital Passthrough', () => {
+    const passthrough = setting({
+      id: 'mqaDisable',
+      dependencies: [
+        { name: 'replayGainMode', value: 'none' },
+        { name: 'fixedVolume', value: 'ON' },
+        { name: 'eq-switch', value: 'OFF' },
+      ],
+    });
+    expect(
+      isVisible(passthrough, {
+        replayGainMode: 'none',
+        fixedVolume: 'OFF',
+        'eq-switch': 'OFF',
+      }),
+    ).toBe(false);
+    expect(
+      isVisible(passthrough, {
+        replayGainMode: 'none',
+        fixedVolume: 'ON',
+        'eq-switch': 'OFF',
+      }),
+    ).toBe(true);
+  });
+
+  it('hides settings that BluOS marks hideIfDisabled when disabled', () => {
+    const hidden = setting({
+      id: 'channelMode',
+      disabled: true,
+      hide_if_disabled: true,
+    });
+    expect(isVisible(hidden, {})).toBe(false);
+    expect(isVisible(setting({ id: 'nodename', disabled: true }), {})).toBe(true);
+  });
+
+  it('rejects volume-limit drafts outside range or below min span', () => {
+    const limits = setting({
+      id: 'volumeLimits',
+      kind: 'dual-range',
+      min_value: -90,
+      max_value: 0,
+      min_range: 30,
+      units: 'dB',
+    });
+    expect(isDualRangeValid(limits, '-90,0')).toBe(true);
+    expect(isDualRangeValid(limits, '-20,0')).toBe(false);
+    expect(isDualRangeValid(limits, '-100,-10')).toBe(false);
+    expect(isDualRangeValid(limits, '-10,-40')).toBe(false);
+  });
+
+  it('validates room-name pattern from BluOS XML', () => {
+    const name = setting({
+      id: 'nodename',
+      kind: 'text',
+      pattern: '.{1,255}',
+    });
+    expect(isTextValueValid(name, 'Kitchen')).toBe(true);
+    expect(isTextValueValid(name, '')).toBe(false);
   });
 
   it('formats dual-range and list labels for the dossier row', () => {

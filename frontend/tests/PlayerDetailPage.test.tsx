@@ -149,17 +149,14 @@ describe('PlayerDetailPage maintenance', () => {
     await waitFor(() => expect(getUpgrade.mock.calls.length).toBeGreaterThan(before));
   });
 
-  it('soft and hard reboot only after confirm', async () => {
+  it('reboots only after confirm', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const control = useFleetStore.getState().control;
     renderPlayer();
-    await screen.findByRole('button', { name: 'Soft reboot' });
+    await screen.findByRole('button', { name: 'Reboot' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Soft reboot' }));
-    await waitFor(() => expect(reboot).toHaveBeenCalledWith('player-kitchen', true));
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hard reboot' }));
-    await waitFor(() => expect(reboot).toHaveBeenCalledWith('player-kitchen', false));
+    fireEvent.click(screen.getByRole('button', { name: 'Reboot' }));
+    await waitFor(() => expect(reboot).toHaveBeenCalledWith('player-kitchen'));
     expect(control).toHaveBeenCalled();
     confirm.mockRestore();
   });
@@ -167,8 +164,8 @@ describe('PlayerDetailPage maintenance', () => {
   it('skips reboot when confirm is cancelled', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(false);
     renderPlayer();
-    await screen.findByRole('button', { name: 'Soft reboot' });
-    fireEvent.click(screen.getByRole('button', { name: 'Soft reboot' }));
+    await screen.findByRole('button', { name: 'Reboot' });
+    fireEvent.click(screen.getByRole('button', { name: 'Reboot' }));
     expect(reboot).not.toHaveBeenCalled();
     confirm.mockRestore();
   });
@@ -176,7 +173,7 @@ describe('PlayerDetailPage maintenance', () => {
   it('hides Bluetooth when the player reports unsupported', async () => {
     getBluetooth.mockResolvedValue({ supported: false, mode: null });
     renderPlayer();
-    await screen.findByRole('button', { name: 'Soft reboot' });
+    await screen.findByRole('button', { name: 'Reboot' });
     expect(screen.queryByRole('heading', { name: 'Bluetooth' })).not.toBeInTheDocument();
     expect(screen.queryByText(/Failed to load/i)).not.toBeInTheDocument();
   });

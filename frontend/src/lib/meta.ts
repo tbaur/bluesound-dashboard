@@ -10,6 +10,20 @@ export function joinMeta(
   return parts.filter((part): part is string | number => Boolean(part)).join(META_SEP);
 }
 
+const TITLE_SEP = ' — ';
+
+/** Track — artist, but never "Mossera — Mossera" when BluOS repeats the name. */
+export function formatTrackArtist(track: string, artist: string): string {
+  const title = track.trim();
+  const name = artist.trim();
+  if (!title) return name;
+  if (!name) return title;
+  if (title.localeCompare(name, undefined, { sensitivity: 'accent' }) === 0) {
+    return title;
+  }
+  return `${title}${TITLE_SEP}${name}`;
+}
+
 const ROOM_SEP = ' · ';
 
 /** One-line room list for tight chrome; extra names collapse to +N. */

@@ -172,7 +172,7 @@ describe('fleetHouseStatus', () => {
     );
 
     expect(status).toMatchObject({
-      primary: 'Plu2, Lyge, Casa Ley & VKNG — Plu2, Lyge, Casa Ley & VKNG',
+      primary: 'Plu2, Lyge, Casa Ley & VKNG',
       detail: 'AirPlay',
       meta: ['3 playing', 'Synced', '1 muted'],
       isIdle: false,

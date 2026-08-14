@@ -5,6 +5,8 @@ import { ApiError } from '@/api/types';
 import {
   choiceOptionsForSetting,
   displayValue,
+  isDualRangeValid,
+  isTextValueValid,
   isVisible,
   selectedChoiceValue,
 } from '@/lib/deviceSettings';
@@ -68,6 +70,8 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
   const fields = visible.filter((setting) => setting.kind !== 'button');
 
   const write = async (setting: DeviceSetting, value: string) => {
+    const current = values[setting.id] ?? setting.value;
+    if (setting.kind !== 'button' && value === current) return;
     setBusyId(setting.id);
     setError(null);
     try {
@@ -78,7 +82,7 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
         delete next[setting.id];
         return next;
       });
-      if (setting.kind === 'button') {
+      if (setting.kind === 'button' || setting.refresh_after_write) {
         const response = await api.getSettings(deviceId, page);
         const next: Record<string, string> = {};
         for (const item of response.settings) {
@@ -94,6 +98,10 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
     } finally {
       setBusyId(null);
     }
+  };
+
+  const commitRange = (setting: DeviceSetting, raw: string) => {
+    void write(setting, raw);
   };
 
   return (
@@ -185,8 +193,9 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
                         setDrafts((prev) => ({ ...prev, [setting.id]: e.target.value }))
                       }
                       onPointerUp={(e) =>
-                        void write(setting, (e.target as HTMLInputElement).value)
+                        commitRange(setting, (e.target as HTMLInputElement).value)
                       }
+                      onBlur={(e) => commitRange(setting, e.target.value)}
                     />
                   </div>
                 </li>
@@ -195,6 +204,7 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
 
             if (setting.kind === 'dual-range') {
               const [low = '', high = ''] = draft.split(',');
+              const dualOk = isDualRangeValid(setting, draft);
               return (
                 <li key={setting.id} title={tip}>
                   <span>
@@ -206,6 +216,8 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
                       type="number"
                       className="settings-num"
                       value={low}
+                      min={setting.min_value ?? undefined}
+                      max={setting.max_value ?? undefined}
                       disabled={disabled}
                       aria-label={`${setting.display_name} low`}
                       onChange={(e) =>
@@ -219,6 +231,8 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
                       type="number"
                       className="settings-num"
                       value={high}
+                      min={setting.min_value ?? undefined}
+                      max={setting.max_value ?? undefined}
                       disabled={disabled}
                       aria-label={`${setting.display_name} high`}
                       onChange={(e) =>
@@ -231,7 +245,8 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
                     <button
                       type="button"
                       className="btn btn-compact"
-                      disabled={disabled || draft === value}
+                      disabled={disabled || draft === value || !dualOk}
+                      title={dualOk ? undefined : 'Keep both limits in range with enough span'}
                       onClick={() => void write(setting, draft)}
                     >
                       Set
@@ -242,6 +257,7 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
             }
 
             if (setting.kind === 'text') {
+              const textOk = isTextValueValid(setting, draft);
               return (
                 <li key={setting.id} title={tip}>
                   <span>
@@ -265,7 +281,10 @@ export function DeviceSettingsPanel({ deviceId }: DeviceSettingsPanelProps) {
                     <button
                       type="button"
                       className="btn"
-                      disabled={disabled || !draft.trim() || draft === value}
+                      disabled={disabled || draft === value || !textOk}
+                      title={
+                        textOk ? undefined : setting.pattern_error || 'Enter a valid value'
+                      }
                       onClick={() => void write(setting, draft)}
                     >
                       Update

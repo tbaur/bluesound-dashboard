@@ -587,25 +587,18 @@ export function PlayerDetailPage() {
               </button>
               <button
                 type="button"
-                className="btn"
-                onClick={() => {
-                  if (window.confirm(`Soft reboot ${device.name}?`)) {
-                    void control(device.id, () => api.reboot(device.id, true));
-                  }
-                }}
-              >
-                Soft reboot
-              </button>
-              <button
-                type="button"
                 className="btn btn-danger"
                 onClick={() => {
-                  if (window.confirm(`Hard reboot ${device.name}?`)) {
-                    void control(device.id, () => api.reboot(device.id, false));
+                  if (
+                    window.confirm(
+                      `Reboot ${device.name}? Playback will stop until it comes back.`,
+                    )
+                  ) {
+                    void control(device.id, () => api.reboot(device.id));
                   }
                 }}
               >
-                Hard reboot
+                Reboot
               </button>
             </div>
           </section>

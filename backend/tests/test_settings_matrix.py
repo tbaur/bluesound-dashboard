@@ -32,6 +32,7 @@ WRITE_CASES = [
     ("reset", "1", "/alsa_setting", "alsa_setting"),
     ("ledbrightness", "dim", "/setting", "setting"),
     ("nodename", "Kitchen Speakers", "/Name", "Name"),
+    ("amplifierStandby", "OFF", "/setting", "setting"),
 ]
 
 
@@ -77,13 +78,28 @@ async def test_parse_kitchen_audio_and_player_fixtures(settings: Settings) -> No
         assert by_id["volumeLimits"].control_path == ""
         assert by_id["fixedVolume"].control_path == ""
         assert by_id["fixedVolume"].depends_on == "mqaDisable"
+        assert [(dep.name, dep.value) for dep in by_id["mqaDisable"].dependencies] == [
+            ("replayGainMode", "none"),
+            ("fixedVolume", "ON"),
+            ("eq-switch", "OFF"),
+        ]
+        assert by_id["volumeLimits"].min_value == -90
+        assert by_id["volumeLimits"].min_range == 30
+        assert by_id["eq-switch"].hide_if_disabled is True
         assert by_id["reset"].kind == "button"
 
         player_by_id = {s.id: s for s in player.settings}
         assert "wifi" not in player_by_id  # webview-only skipped
         assert player_by_id["ledbrightness"].control_path == "/setting"
         assert player_by_id["nodename"].control_path == "/Name"
-        audio_ids = {case[0] for case in WRITE_CASES} - {"ledbrightness", "nodename"}
+        assert player_by_id["nodename"].disabled is True
+        assert player_by_id["nodename"].pattern == ".{1,255}"
+        assert player_by_id["nodename"].refresh_after_write is True
+        audio_ids = {case[0] for case in WRITE_CASES} - {
+            "ledbrightness",
+            "nodename",
+            "amplifierStandby",
+        }
         assert {s.id for s in audio.settings} >= audio_ids
     finally:
         await client.aclose()
