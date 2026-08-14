@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 type StickyArtProps = {
   src: string;
@@ -6,12 +6,27 @@ type StickyArtProps = {
   empty: ReactNode;
 };
 
-/** Keep the last image when src blips empty (skip/back). Swap immediately for a new URL. */
+/** Keep the last image when src blips empty; swap only after the next URL has loaded. */
 export function StickyArt({ src, className, empty }: StickyArtProps) {
   const [shown, setShown] = useState(src);
-  if (src && src !== shown) {
-    setShown(src);
-  }
+
+  useEffect(() => {
+    if (!src || src === shown) return undefined;
+    let cancelled = false;
+    const probe = new Image();
+    const reveal = () => {
+      if (!cancelled) setShown(src);
+    };
+    probe.addEventListener('load', reveal);
+    probe.addEventListener('error', reveal);
+    probe.src = src;
+    if (probe.complete) reveal();
+    return () => {
+      cancelled = true;
+      probe.removeEventListener('load', reveal);
+      probe.removeEventListener('error', reveal);
+    };
+  }, [src, shown]);
 
   if (!shown) return empty;
   return <img src={shown} alt="" className={className} />;
