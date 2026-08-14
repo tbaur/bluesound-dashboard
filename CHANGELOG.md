@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.1](https://github.com/tbaur/bluos-dashboard/compare/v0.9.0...v0.9.1) (2026-08-14)
+
+
+### Bug Fixes
+
+* honor settings rules, one reboot, and now-playing title ([#58](https://github.com/tbaur/bluos-dashboard/issues/58)) ([08f5cec](https://github.com/tbaur/bluos-dashboard/commit/08f5ceca5a3b521c4a45505ab3767901d772de42))
+
 ## [0.9.0](https://github.com/tbaur/bluos-dashboard/compare/v0.8.1...v0.9.0) (2026-08-14)
 
 
