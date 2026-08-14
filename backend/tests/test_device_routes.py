@@ -217,7 +217,7 @@ async def test_queue_inputs_bluetooth_presets(
         assert (await http.post("/api/v1/devices/player-kitchen/presets/1/play")).status_code == 204
 
         assert (
-            await http.post("/api/v1/devices/player-kitchen/reboot", json={"soft": True})
+            await http.post("/api/v1/devices/player-kitchen/reboot")
         ).status_code == 204
     await client.aclose()
 
@@ -321,15 +321,11 @@ async def test_fleet_mute_pause_stop(settings: Settings, monkeypatch: pytest.Mon
         assert stop.status_code == 200
         assert stop.json()["action"] == "stop"
 
-        soft = await http.post("/api/v1/fleet/reboot", json={"soft": True})
-        assert soft.status_code == 200
-        assert soft.json()["action"] == "soft_reboot"
-        assert soft.json()["succeeded"] == 2
+        reboot = await http.post("/api/v1/fleet/reboot")
+        assert reboot.status_code == 200
+        assert reboot.json()["action"] == "reboot"
+        assert reboot.json()["succeeded"] == 2
         assert client.reboot.await_count == 2
-
-        hard = await http.post("/api/v1/fleet/reboot", json={"soft": False})
-        assert hard.status_code == 200
-        assert hard.json()["action"] == "reboot"
     await client.aclose()
 
 
@@ -393,9 +389,9 @@ async def test_fleet_mute_targets_ci_secondary_zone(
         }
 
         # Chassis web UI: reboot once per IP, not once per zone.
-        soft = await http.post("/api/v1/fleet/reboot", json={"soft": True})
-        assert soft.status_code == 200
-        assert soft.json()["succeeded"] == 1
+        reboot = await http.post("/api/v1/fleet/reboot")
+        assert reboot.status_code == 200
+        assert reboot.json()["succeeded"] == 1
         assert client.reboot.await_count == 1
         assert client.reboot.await_args.args[0] == "172.16.10.144:11000"
     await client.aclose()

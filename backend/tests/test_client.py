@@ -351,7 +351,7 @@ async def test_post_303_switches_to_get(settings: Settings) -> None:
     )
     client = BluOSClient(settings)
     try:
-        assert await client.reboot("192.168.1.20", soft=False) is True
+        assert await client.reboot("192.168.1.20") is True
     finally:
         await client.aclose()
 
@@ -365,10 +365,7 @@ async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
     play = respx.get("http://192.168.1.20:11000/Play").mock(
         return_value=httpx.Response(200, content=b"<ok/>")
     )
-    soft = respx.post("http://192.168.1.20/Reboot").mock(
-        return_value=httpx.Response(200, content=b"<ok/>")
-    )
-    hard = respx.post("http://192.168.1.20/reboot").mock(
+    reboot = respx.post("http://192.168.1.20/reboot").mock(
         return_value=httpx.Response(200, text="ok")
     )
     respx.get("http://192.168.1.20:11000/Presets").mock(
@@ -401,14 +398,12 @@ async def test_toggle_reboot_presets_and_sync(settings: Settings) -> None:
         assert pause.called
         assert await client.toggle("192.168.1.20", state="pause") is True
         assert play.called
-        assert await client.reboot("192.168.1.20", soft=True) is True
-        assert soft.called
-        assert soft.calls.last.request.url.host == "192.168.1.20"
-        assert soft.calls.last.request.url.port in (None, 80)
-        assert await client.reboot("192.168.1.20", soft=False) is True
-        assert hard.called
-        assert "yes=1" in (hard.calls.last.request.content or b"").decode()
-        assert hard.calls.last.request.url.path == "/reboot"
+        assert await client.reboot("192.168.1.20") is True
+        assert reboot.called
+        assert reboot.calls.last.request.url.host == "192.168.1.20"
+        assert reboot.calls.last.request.url.port in (None, 80)
+        assert "yes=1" in (reboot.calls.last.request.content or b"").decode()
+        assert reboot.calls.last.request.url.path == "/reboot"
         presets = await client.get_presets("192.168.1.20")
         assert presets is not None
         assert presets[0].name == "Morning"
@@ -512,6 +507,7 @@ async def test_settings_and_upgrade_web_ui(settings: Settings) -> None:
         assert player is not None
         assert all(s.id != "wifi" for s in player.settings)
         assert any(s.id == "ledbrightness" for s in player.settings)
+        assert any(s.id == "amplifierStandby" and s.control_path == "/setting" for s in player.settings)
 
         assert await client.set_device_setting("192.168.1.20", "eq-treble", "3") is True
         assert (

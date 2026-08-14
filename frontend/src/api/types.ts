@@ -131,6 +131,11 @@ export interface SettingOption {
   display_name: string;
 }
 
+export interface SettingDependency {
+  name: string;
+  value: string;
+}
+
 export interface DeviceSetting {
   id: string;
   name: string;
@@ -140,12 +145,18 @@ export interface DeviceSetting {
   description: string;
   explanation: string;
   disabled: boolean;
+  hide_if_disabled: boolean;
   control_path: string;
   min_value: number | null;
   max_value: number | null;
+  min_range: number | null;
   step: number | null;
   units: string;
+  pattern: string;
+  pattern_error: string;
+  refresh_after_write: boolean;
   options: SettingOption[];
+  dependencies: SettingDependency[];
   depends_on: string;
   depends_value: string;
 }

@@ -26,7 +26,6 @@ from app.models import (
     Preset,
     QueueMoveRequest,
     QueueResponse,
-    RebootRequest,
     RepeatRequest,
     SeekRequest,
     SettingWriteRequest,
@@ -209,14 +208,13 @@ async def device_upgrade(device_id: str, state: StateDep) -> UpgradeStatus:
 
 
 @router.post("/devices/{device_id}/reboot", status_code=204)
-async def reboot(device_id: str, body: RebootRequest, state: StateDep) -> Response:
+async def reboot(device_id: str, state: StateDep) -> Response:
     ip = require_device(state, device_id)
 
     async def op(_: str) -> bool:
-        return await state.client.reboot(ip, soft=body.soft)
+        return await state.client.reboot(ip)
 
-    op_name = "soft_reboot" if body.soft else "reboot"
-    return await run_control(state, device_id, op_name, op)
+    return await run_control(state, device_id, "reboot", op)
 
 @router.post("/devices/{device_id}/back", status_code=204)
 async def back(device_id: str, state: StateDep) -> Response:

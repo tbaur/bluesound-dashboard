@@ -25,7 +25,6 @@ from app.models import (
     FleetVolumeResult,
     MuteRequest,
     PlayerStatus,
-    RebootRequest,
     UpgradeStatus,
     VolumeRequest,
 )
@@ -122,17 +121,15 @@ async def fleet_stop(state: StateDep) -> FleetActionResponse:
 
 
 @router.post("/fleet/reboot", response_model=FleetActionResponse)
-async def fleet_reboot(body: RebootRequest, state: StateDep) -> FleetActionResponse:
-    """Soft or hard reboot each chassis once (device web UI /reboot)."""
-    soft = body.soft
-    action = "soft_reboot" if soft else "reboot"
+async def fleet_reboot(state: StateDep) -> FleetActionResponse:
+    """Reboot each chassis once (device web UI POST /reboot yes=1)."""
     snapshot = await state.discovery.get_devices()
     targets = chassis_representatives(snapshot.devices)
 
     async def run(endpoint: str) -> bool:
-        return await state.client.reboot(endpoint, soft=soft)
+        return await state.client.reboot(endpoint)
 
-    return await fleet_action(state, action, run, devices=targets)
+    return await fleet_action(state, "reboot", run, devices=targets)
 
 @router.get("/fleet/firmware", response_model=FleetFirmwareResponse)
 async def fleet_firmware(state: StateDep) -> FleetFirmwareResponse:

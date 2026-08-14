@@ -195,7 +195,7 @@ export function HousePage() {
       <section className="panel">
         <h2>Maintenance</h2>
         <p className="card-meta" style={{ marginBottom: 12 }}>
-          Rescan the LAN, or reboot every player. Soft is gentler; hard fully restarts each device.
+          Rescan the LAN, or reboot every player. Playback stops until each chassis comes back.
         </p>
         <div className="fleet-actions" role="group" aria-label="House maintenance">
           <button
@@ -208,37 +208,20 @@ export function HousePage() {
           </button>
           <button
             type="button"
-            className="btn"
-            disabled={busy !== null || devices.length === 0}
-            onClick={() => {
-              if (
-                !window.confirm(
-                  `Soft reboot all ${devices.length} player${devices.length === 1 ? '' : 's'}?`,
-                )
-              ) {
-                return;
-              }
-              run('soft', () => fleetRebootAll(true));
-            }}
-          >
-            {busy === 'soft' ? '…' : 'Soft reboot all'}
-          </button>
-          <button
-            type="button"
             className="btn btn-danger"
             disabled={busy !== null || devices.length === 0}
             onClick={() => {
               if (
                 !window.confirm(
-                  `Hard reboot all ${devices.length} player${devices.length === 1 ? '' : 's'}? This fully restarts each device.`,
+                  `Reboot all ${devices.length} player${devices.length === 1 ? '' : 's'}? Playback will stop until they come back.`,
                 )
               ) {
                 return;
               }
-              run('hard', () => fleetRebootAll(false));
+              run('reboot', () => fleetRebootAll());
             }}
           >
-            {busy === 'hard' ? '…' : 'Hard reboot all'}
+            {busy === 'reboot' ? '…' : 'Reboot all'}
           </button>
         </div>
       </section>

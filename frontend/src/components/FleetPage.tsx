@@ -46,7 +46,7 @@ export function FleetPage() {
         <div>
           <h1 className="brand">BluOS</h1>
           <p className="brand-sub">
-            Live fleet control for every player on your network — discovered on load, no hardcoded IPs.
+            Live fleet control for every player on your network, discovered on load, no hardcoded IPs.
           </p>
         </div>
         <div className="header-actions">

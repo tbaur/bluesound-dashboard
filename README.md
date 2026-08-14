@@ -9,7 +9,7 @@ LAN dashboard for every BluOS player on your network — Nodes, Pulse, NAD CI zo
 
 Related CLI: [bluos-controller](https://github.com/tbaur/bluos-controller). This dashboard is self-contained (no runtime dependency on the CLI).
 
-![House remote with now playing, room chips, and the live player list](docs/images/house.png)
+![House remote with now playing, room chips, and playback controls](docs/images/now-playing.png)
 
 ## Features
 
@@ -17,7 +17,7 @@ Related CLI: [bluos-controller](https://github.com/tbaur/bluos-controller). This
 - **Fleet** — every player, live now-playing, A–Z or clustered by sync group (auto-switches to Sync when a group forms).
 - **Volume** — **Bluesound** (Nodes/Pulse) and **NAD CI S2** are separate sliders (different amp scales). CI S2 also has 42 / 50 / 60 / 70 chips.
 - **Multi-room** — create groups, add/remove followers, group all free rooms under a lead, ungroup one set or all. Break-all also clears orphans whose primary left the network.
-- **Per player** — queue, inputs, presets, Bluetooth, audio/player settings, diagnostics, hard/soft reboot.
+- **Per player** — queue, inputs, presets, Bluetooth, audio/player settings, diagnostics, reboot.
 - **House page** — same remote, firmware inventory + upgrade check, reboot all, ungroup all.
 - **Discovery** — on load, on rescan, and automatic re-scan when the fleet is empty. mDNS browses `_musc` and `_musp` (CI secondary zones as `ip:port`).
 - **Live updates** — server poller + SSE, with REST fallback if the stream drops.

@@ -199,7 +199,7 @@ describe('HousePage actions', () => {
     confirm.mockRestore();
   });
 
-  it('rescans and soft/hard reboots after confirm', async () => {
+  it('rescans and reboots after confirm', async () => {
     const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true);
     const refresh = useFleetStore.getState().refresh;
     const fleetRebootAll = useFleetStore.getState().fleetRebootAll;
@@ -208,11 +208,8 @@ describe('HousePage actions', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Rescan network' }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole('button', { name: 'Soft reboot all' }));
-    await waitFor(() => expect(fleetRebootAll).toHaveBeenCalledWith(true));
-
-    fireEvent.click(screen.getByRole('button', { name: 'Hard reboot all' }));
-    await waitFor(() => expect(fleetRebootAll).toHaveBeenCalledWith(false));
+    fireEvent.click(screen.getByRole('button', { name: 'Reboot all' }));
+    await waitFor(() => expect(fleetRebootAll).toHaveBeenCalled());
     confirm.mockRestore();
   });
 });

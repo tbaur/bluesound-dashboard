@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import re
 import time
+import xml.etree.ElementTree as ET
 from urllib.parse import quote
 
 import httpx
@@ -14,6 +15,7 @@ from app.bluos.xml import safe_parse_xml
 from app.models import (
     DeviceSetting,
     DeviceSettingsResponse,
+    SettingDependency,
     SettingOption,
     UpgradeStatus,
 )
@@ -21,16 +23,101 @@ from app.validators import format_endpoint, sanitize_ip
 
 logger = logging.getLogger(__name__)
 
+_XML_TRUE = frozenset({"true", "1", "yes"})
+
+
+def _xml_flag(node: ET.Element, attr: str) -> bool:
+    return (node.get(attr) or "").lower() in _XML_TRUE
+
+
+def _optional_float(raw: str | None) -> float | None:
+    if not raw:
+        return None
+    try:
+        return float(raw)
+    except ValueError:
+        return None
+
+
+def _parse_setting_values(
+    node: ET.Element,
+) -> tuple[list[SettingOption], float | None, float | None, float | None, float | None, str]:
+    options: list[SettingOption] = []
+    min_value: float | None = None
+    max_value: float | None = None
+    min_range: float | None = None
+    step: float | None = None
+    units = ""
+    for value_node in node.findall("value"):
+        option_name = (value_node.get("name") or "").strip()
+        if option_name:
+            options.append(
+                SettingOption(
+                    name=option_name,
+                    display_name=value_node.get("displayName") or option_name,
+                )
+            )
+            continue
+        if value_node.get("min") is None:
+            continue
+        min_value = _optional_float(value_node.get("min"))
+        max_value = _optional_float(value_node.get("max"))
+        step = _optional_float(value_node.get("step"))
+        min_range = _optional_float(value_node.get("minRange"))
+        units = value_node.get("units") or ""
+    return options, min_value, max_value, min_range, step, units
+
+
+def _parse_setting_dependencies(node: ET.Element) -> list[SettingDependency]:
+    deps: list[SettingDependency] = []
+    for dep in node.findall("dependsOn"):
+        name = (dep.get("name") or "").strip()
+        if name:
+            deps.append(SettingDependency(name=name, value=dep.get("value") or ""))
+    return deps
+
+
+def _parse_setting_node(node: ET.Element) -> DeviceSetting | None:
+    setting_id = (node.get("id") or node.get("name") or "").strip()
+    if not setting_id or node.find("webview") is not None:
+        return None
+    options, min_value, max_value, min_range, step, units = _parse_setting_values(node)
+    dependencies = _parse_setting_dependencies(node)
+    first = dependencies[0] if dependencies else None
+    return DeviceSetting(
+        id=setting_id,
+        name=node.get("name") or setting_id,
+        display_name=node.get("displayName") or setting_id,
+        kind=(node.get("class") or "").strip(),
+        value=node.get("value") or "",
+        description=node.get("description") or "",
+        explanation=node.get("explanation") or "",
+        disabled=_xml_flag(node, "disable"),
+        hide_if_disabled=_xml_flag(node, "hideIfDisabled"),
+        control_path=node.get("url") or "",
+        min_value=min_value,
+        max_value=max_value,
+        min_range=min_range,
+        step=step,
+        units=units,
+        pattern=node.get("pattern") or "",
+        pattern_error=node.get("patternError") or "",
+        refresh_after_write=_xml_flag(node, "refresh"),
+        options=options,
+        dependencies=dependencies,
+        depends_on=first.name if first else "",
+        depends_value=first.value if first else "",
+    )
+
 
 class BluOSWebUIMixin(BluOSTransport):
-    async def reboot(self, ip: str, *, soft: bool = False) -> bool:
-        """Reboot via the device web UI (:80), matching bluos-controller / native UI.
+    async def reboot(self, ip: str) -> bool:
+        """Restart the player via the device web UI (:80).
 
-        Soft: POST /Reboot soft=1. Hard: POST /reboot yes=1.
-        BluOS :11000 has no /reboot|/Reboot handlers (404).
+        Custom Integration API v1.7 documents one reboot: POST /reboot with
+        yes=1. There is no separate soft path — POST /Reboot soft=1 404s on
+        current firmware, and :11000 has no reboot handler.
         """
-        if soft:
-            return await self._post_web_ui(ip, "/Reboot", {"soft": "1"})
         return await self._post_web_ui(ip, "/reboot", {"yes": "1"})
 
     def _web_ui_url(self, ip: str, path: str) -> str:
@@ -191,62 +278,9 @@ class BluOSWebUIMixin(BluOSTransport):
             return None
         settings: list[DeviceSetting] = []
         for node in root.iter("setting"):
-            setting_id = (node.get("id") or node.get("name") or "").strip()
-            if not setting_id:
-                continue
-            # Skip webview-only entries (Wi-Fi, etc.) — no simple value control.
-            if node.find("webview") is not None:
-                continue
-            kind = (node.get("class") or "").strip()
-            options: list[SettingOption] = []
-            min_value: float | None = None
-            max_value: float | None = None
-            step: float | None = None
-            units = ""
-            for value_node in node.findall("value"):
-                option_name = (value_node.get("name") or "").strip()
-                if option_name:
-                    options.append(
-                        SettingOption(
-                            name=option_name,
-                            display_name=value_node.get("displayName") or option_name,
-                        )
-                    )
-                    continue
-                if value_node.get("min") is not None:
-                    try:
-                        min_value = float(value_node.get("min") or "")
-                        max_value = float(value_node.get("max") or "")
-                    except ValueError:
-                        min_value = None
-                        max_value = None
-                    step_raw = value_node.get("step")
-                    try:
-                        step = float(step_raw) if step_raw else None
-                    except ValueError:
-                        step = None
-                    units = value_node.get("units") or ""
-            depends = node.find("dependsOn")
-            settings.append(
-                DeviceSetting(
-                    id=setting_id,
-                    name=node.get("name") or setting_id,
-                    display_name=node.get("displayName") or setting_id,
-                    kind=kind,
-                    value=node.get("value") or "",
-                    description=node.get("description") or "",
-                    explanation=node.get("explanation") or "",
-                    disabled=(node.get("disable") or "").lower() in {"true", "1", "yes"},
-                    control_path=node.get("url") or "",
-                    min_value=min_value,
-                    max_value=max_value,
-                    step=step,
-                    units=units,
-                    options=options,
-                    depends_on=(depends.get("name") if depends is not None else "") or "",
-                    depends_value=(depends.get("value") if depends is not None else "") or "",
-                )
-            )
+            parsed = _parse_setting_node(node)
+            if parsed is not None:
+                settings.append(parsed)
         return DeviceSettingsResponse(page_id=page_id, settings=settings)
 
     async def get_device_settings(self, ip: str, page_id: str) -> DeviceSettingsResponse | None:

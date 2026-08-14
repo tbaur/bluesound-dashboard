@@ -103,12 +103,16 @@ a {
 }
 
 .fleet-bar-rail .fleet-bar-panel {
-  flex: 0 0 auto;
-  padding: 10px 14px;
+  flex: 1 1 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 8.5rem;
+  padding: 18px 16px;
 }
 
 .fleet-bar-rail .fleet-bar-panel-head {
-  margin-bottom: 8px;
+  margin-bottom: 12px;
 }
 
 .volume-level-chips {
@@ -174,6 +178,10 @@ a {
 
 .global-volume-row {
   gap: 10px;
+}
+
+.fleet-bar-rail .global-volume-row input[type="range"] {
+  min-height: 1.75rem;
 }
 
 .global-volume-value {

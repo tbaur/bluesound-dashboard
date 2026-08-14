@@ -1,6 +1,6 @@
 import type { PlayerStatus, SyncState } from '@/api/types';
 import { deviceEndpoint, endpointsMatch } from '@/lib/endpoint';
-import { joinMeta } from '@/lib/meta';
+import { formatTrackArtist, joinMeta } from '@/lib/meta';
 import { streamQualityLabel } from '@/lib/streamQuality';
 
 function isPlaying(state: string): boolean {
@@ -26,10 +26,8 @@ function resolveStreamMeta(focus: Cluster): string {
 function nowPlayingLabel(focus: Cluster): { primary: string; detail: string } {
   const lead = focus.lead;
   const trackArtist =
-    [lead.track, lead.artist].filter(Boolean).join(' — ') ||
-    focus.members
-      .map((m) => [m.track, m.artist].filter(Boolean).join(' — '))
-      .find(Boolean) ||
+    formatTrackArtist(lead.track, lead.artist) ||
+    focus.members.map((m) => formatTrackArtist(m.track, m.artist)).find(Boolean) ||
     '';
   const service =
     serviceLabel(lead) ||

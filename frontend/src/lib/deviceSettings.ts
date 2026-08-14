@@ -1,13 +1,21 @@
-import type { DeviceSetting } from '@/api/types';
+import type { DeviceSetting, SettingDependency } from '@/api/types';
 
 export type ChoiceOption = { name: string; label: string };
+
+function settingDependencies(setting: DeviceSetting): SettingDependency[] {
+  if (setting.dependencies.length > 0) {
+    return setting.dependencies;
+  }
+  if (!setting.depends_on) return [];
+  return [{ name: setting.depends_on, value: setting.depends_value }];
+}
 
 export function isVisible(
   setting: DeviceSetting,
   values: Record<string, string>,
 ): boolean {
-  if (!setting.depends_on) return true;
-  return values[setting.depends_on] === setting.depends_value;
+  if (setting.hide_if_disabled && setting.disabled) return false;
+  return settingDependencies(setting).every((dep) => values[dep.name] === dep.value);
 }
 
 export function isBooleanOn(value: string): boolean {
@@ -92,4 +100,26 @@ export function displayValue(setting: DeviceSetting, value: string): string {
 /** Expected BluOS write target for tests and docs. */
 export function writeStrategy(setting: DeviceSetting): 'bluos-get' | 'web-ui-post' {
   return setting.control_path ? 'bluos-get' : 'web-ui-post';
+}
+
+export function isDualRangeValid(setting: DeviceSetting, draft: string): boolean {
+  const [lowRaw = '', highRaw = ''] = draft.split(',');
+  const low = Number(lowRaw);
+  const high = Number(highRaw);
+  if (!Number.isFinite(low) || !Number.isFinite(high) || low > high) return false;
+  if (setting.min_value != null && low < setting.min_value) return false;
+  if (setting.max_value != null && high > setting.max_value) return false;
+  if (setting.min_range != null && high - low < setting.min_range) return false;
+  return true;
+}
+
+export function isTextValueValid(setting: DeviceSetting, draft: string): boolean {
+  const trimmed = draft.trim();
+  if (!trimmed) return false;
+  if (!setting.pattern) return true;
+  try {
+    return new RegExp(`^(?:${setting.pattern})$`).test(trimmed);
+  } catch {
+    return true;
+  }
 }

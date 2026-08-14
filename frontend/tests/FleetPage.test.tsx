@@ -107,7 +107,7 @@ describe('FleetPage sort', () => {
     expect(screen.getByRole('heading', { name: 'BluOS' })).toBeInTheDocument();
     expect(
       screen.getByText(
-        'Live fleet control for every player on your network — discovered on load, no hardcoded IPs.',
+        'Live fleet control for every player on your network, discovered on load, no hardcoded IPs.',
       ),
     ).toBeInTheDocument();
     expect(

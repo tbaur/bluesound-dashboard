@@ -132,8 +132,8 @@ export const api = {
   getUpgrade: (id: string) => request<UpgradeStatus>(`/devices/${id}/upgrade`),
   fleetFirmware: () => request<FleetFirmwareResponse>('/fleet/firmware'),
   fleetUpgrades: () => request<FleetUpgradeResponse>('/fleet/upgrades'),
-  reboot: (id: string, soft = false) =>
-    request<void>(`/devices/${id}/reboot`, { method: 'POST', json: { soft } }),
+  reboot: (id: string) =>
+    request<void>(`/devices/${id}/reboot`, { method: 'POST' }),
   setVolume: (id: string, level: number) =>
     request<void>(`/devices/${id}/volume`, { method: 'POST', json: { level } }),
   setFleetVolume: (level: number, deviceIds?: string[]) => {
@@ -172,13 +172,13 @@ export const api = {
       failed: number;
       results: { device_id: string; name: string; ok: boolean }[];
     }>('/fleet/stop', { method: 'POST' }),
-  fleetReboot: (soft = false) =>
+  fleetReboot: () =>
     request<{
       action: string;
       succeeded: number;
       failed: number;
       results: { device_id: string; name: string; ok: boolean }[];
-    }>('/fleet/reboot', { method: 'POST', json: { soft } }),
+    }>('/fleet/reboot', { method: 'POST' }),
   setMute: (id: string, mute: boolean) =>
     request<void>(`/devices/${id}/mute`, { method: 'POST', json: { mute } }),
   getQueue: (id: string) => request<QueueResponse>(`/devices/${id}/queue`),
