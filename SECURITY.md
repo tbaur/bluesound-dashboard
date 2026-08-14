@@ -4,10 +4,9 @@
 
 | Version | Supported |
 | ------- | --------- |
-| 0.8.x   | ✅ Active support |
-| 0.7.x   | ❌ No longer supported |
-| 0.6.x   | ❌ No longer supported |
-| < 0.6   | ❌ No longer supported |
+| 1.0.x   | ✅ Active support |
+| 0.9.x   | ❌ No longer supported |
+| < 0.9   | ❌ No longer supported |
 
 ## Reporting a Vulnerability
 
@@ -61,4 +60,4 @@ Local development: `make run` (UI `:8765`, API `:8000`). Ops and health endpoint
 
 ---
 
-*Last updated: 2026-08-13*
+*Last updated: 2026-08-14*

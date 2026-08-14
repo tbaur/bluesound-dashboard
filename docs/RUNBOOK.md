@@ -43,6 +43,7 @@ Environment variables: [CONFIGURATION.md](CONFIGURATION.md). Network exposure no
 | `GET /api/v1/healthz` | Liveness — process up; `status: degraded` when the poller is stopped |
 | `GET /api/v1/readyz` | Readiness — 503 when poller is not running; includes `sse_dropped_events` and subscriber count |
 | `GET /api/v1/version` | Release version |
+| `GET /api/v1/fleet/health` | In-memory poller drop history (this process; 24h window; resets on restart). Also included on SSE `fleet` events |
 | `GET /health` | Redirects to `/api/v1/healthz` (so SPA catch-all never serves HTML for `/health`) |
 
 ## Ports (local)
@@ -64,7 +65,11 @@ Vite proxies `/api` → the API. CORS defaults allow both `http://127.0.0.1:8765
 | `device_not_found` on control | Player dropped off discovery (grace expired) | Rescan network; check `BSD_DISCOVERED_GRACE_TTL` |
 | Rooms stuck “synced” / reconnecting after primary power-off | Orphan group (primary offline) | **Ungroup** / **Ungroup all** / House **Break all groups** — backend reparents onto a live donor then removes |
 | Add rooms disabled on “Offline primary” | Expected — membership changes need a live primary | Ungroup orphans, then form a new group under an online lead |
-| One player stuck offline | Circuit slow-poll after failures | Power-cycle player; wait for recovery poll |
+| One player stuck offline | Circuit slow-poll after consecutive long-poll/connect failures | Power-cycle player; wait for `BSD_CIRCUIT_SLOW_POLL_SECONDS` |
+| House Health empty after restart | Drop history is process-local (not on disk) | Expected — first online in this process starts the 12h presence bar |
+| `Request timed out` on Skip or queue Down from a player page | Browser allows six HTTP/1.1 connections per host; diagnose/upgrade/SSE were holding slots | Leave the page (scrapes abort). Current UI loads queue on open and Advanced extras lazily |
+| Player still “online” after power-off | Hung TCP on a Status long-poll | Connect failures fail in `BSD_DEVICE_HTTP_TIMEOUT` (~3s). A stuck read can wait until `BSD_STATUS_LONG_POLL_SECONDS` + slack |
+| `:11000` Status/SyncStatus every 3s | Old dashboard process (pre-etag long-poll) | Restart after this release — online players long-poll `/Status` |
 | Bluetooth section missing | Model/probe reports unsupported | Normal for many CI zones and players without BT |
 | SSE reconnecting / stale UI | Proxy buffering, backend restart, or SSE backpressure | Check backend logs for `sse_drop_subscriber`; UI uses exponential reconnect, then after 8 failures shows **Offline**, keeps REST polling every 5s, and retries SSE every 60s until live again (empty fleet uses `BSD_EMPTY_FLEET_REDISCOVERY_SECONDS` cache — not a full discovery each poll) |
 | `make run` says port in use | Something already listens on `:8000`/`:8765` | Stop that process, or `BSD_FORCE_FREE_PORTS=1 make run` |
@@ -84,7 +89,7 @@ Variable names and defaults: [CONFIGURATION.md](CONFIGURATION.md).
 
 ## Logs
 
-Stdout JSON logs include `request_id`. Every HTTP request (except SSE stream) emits `http_request` with method, path, status, and `duration_ms`. Control paths emit `control_op` / `control_failed` / `control_during_grace` with `op`, `device_id`, and `device_ip`. Fleet-wide actions log per-device results plus `fleet_action_complete` (`action`, `succeeded`, `failed`). Scoped fleet volume also logs `fleet_volume_targets` with `target_count` / `scoped`. Stop-after-ungroup warnings include `role` (`slave` / `primary`). Correlate UI toast request IDs with log lines.
+Stdout JSON logs include `request_id`. Every HTTP request (except SSE stream) emits `http_request` with method, path, status, and `duration_ms`. Control paths emit `control_op` / `control_failed` / `control_during_grace` with `op`, `device_id`, and `device_ip`. Fleet-wide actions log per-device results plus `fleet_action_complete` (`action`, `succeeded`, `failed`). Scoped fleet volume also logs `fleet_volume_targets` with `target_count` / `scoped`. Stop-after-ungroup warnings include `role` (`slave` / `primary`). Poller misses log `poll_device_error` / `device_watch_failed` / `poller_cycle_failed`. Correlate UI toast request IDs with log lines.
 
 ## See also
 
