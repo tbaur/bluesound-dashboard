@@ -3,9 +3,9 @@ requires = ["setuptools>=83", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "bluesound-dashboard"
+name = "bluos-dashboard"
 version = "0.8.1"
-description = "Consolidated Bluesound / BluOS LAN dashboard"
+description = "Consolidated BluOS LAN dashboard"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }
@@ -33,7 +33,7 @@ dev = [
 ]
 
 [project.scripts]
-bluesound-dashboard = "app.cli:main"
+bluos-dashboard = "app.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]

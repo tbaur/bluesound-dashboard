@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router';
 import type { PlayerStatus } from '@/api/types';
-import {
-  fleetHasActivePlayback,
-  fleetHouseStatus,
-  fleetHouseStatusLine,
-} from '@/lib/fleetStatus';
+import { HouseRemote } from '@/components/HouseRemote';
+import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
 import { partitionVolumeGroups } from '@/lib/deviceGroups';
 import { useFleetStore } from '@/store/fleetStore';
-import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
+
+const CI_S2_VOLUME_LEVELS = [42, 50, 60, 70] as const;
 
 function medianVolume(volumes: number[]): number {
   if (volumes.length === 0) return 0;
@@ -26,6 +23,7 @@ type GroupVolumePanelProps = {
   devices: PlayerStatus[];
   inputId: string;
   ariaLabel: string;
+  levels?: readonly number[];
 };
 
 function GroupVolumePanel({
@@ -34,6 +32,7 @@ function GroupVolumePanel({
   devices,
   inputId,
   ariaLabel,
+  levels,
 }: GroupVolumePanelProps) {
   const setFleetVolume = useFleetStore((s) => s.setFleetVolume);
   const holdVolumes = useFleetStore((s) => s.holdVolumes);
@@ -130,7 +129,7 @@ function GroupVolumePanel({
                 type="button"
                 className="volume-linked-pill volume-linked-pill-action"
                 disabled={pending}
-                title={`Set ${scopeLabel.toLowerCase()} to median volume ${fleetMedian}`}
+                title={`Set ${scopeLabel} to median volume ${fleetMedian}`}
                 onClick={() => {
                   setDragDraft(fleetMedian);
                   latestLevel.current = fleetMedian;
@@ -175,152 +174,64 @@ function GroupVolumePanel({
           {display}
         </span>
       </div>
-    </section>
-  );
-}
-
-function FleetActionsPanel() {
-  const devices = useFleetStore((s) => s.devices);
-  const sync = useFleetStore((s) => s.sync);
-  const fleetMuteAll = useFleetStore((s) => s.fleetMuteAll);
-  const fleetPauseAll = useFleetStore((s) => s.fleetPauseAll);
-  const fleetStopAll = useFleetStore((s) => s.fleetStopAll);
-  const [busy, setBusy] = useState<string | null>(null);
-
-  const allMuted = devices.length > 0 && devices.every((d) => d.muted);
-  const anyPlaying = fleetHasActivePlayback(devices);
-  const status = fleetHouseStatus(devices, sync);
-  const statusTitle = fleetHouseStatusLine(devices, sync);
-
-  const run = (key: string, action: () => Promise<void>) => {
-    setBusy(key);
-    void action().finally(() => setBusy(null));
-  };
-
-  const showArt = status.hasDominantStream && !status.isIdle;
-  const artHref = status.leadId ? `/player/${status.leadId}` : '/house';
-
-  return (
-    <section
-      className="fleet-bar-panel house-remote"
-      aria-labelledby="fleet-actions-heading"
-      data-idle={status.isIdle ? 'true' : 'false'}
-      data-art={showArt ? 'true' : 'false'}
-      data-dominant={status.hasDominantStream ? 'true' : 'false'}
-    >
-      <div className="house-remote-body">
-        {showArt ? (
-          <Link
-            to={artHref}
-            className="house-remote-art"
-            aria-label={
-              status.image
-                ? `Now playing artwork — open ${status.primary}`
-                : `Open ${status.primary}`
-            }
-          >
-            {status.image ? (
-              <img
-                key={status.image}
-                src={status.image}
-                alt=""
-                className="house-remote-art-img"
-              />
-            ) : (
-              <span className="house-remote-art-empty" aria-hidden="true">
-                <span className="house-remote-art-glyph" />
-              </span>
-            )}
-          </Link>
-        ) : null}
-        <div className="house-remote-head">
-          <div className="house-remote-title-row">
-            <h2 id="fleet-actions-heading">
-              <Link to="/house" className="house-remote-title-link">
-                House remote
-              </Link>
-            </h2>
-            {status.meta.length > 0 ? (
-              <ul className="house-remote-meta" aria-label="House status">
-                {status.meta.map((item) => (
-                  <li key={item}>{item}</li>
-                ))}
-              </ul>
-            ) : null}
-          </div>
-          <p className="house-remote-primary" title={statusTitle}>
-            <Link to="/house" className="house-remote-status-link">
-              {status.primary}
-            </Link>
-          </p>
-          {status.detail ? (
-            <p className="house-remote-detail" title={status.detail}>
-              {status.detail}
-            </p>
-          ) : null}
+      {levels && levels.length > 0 ? (
+        <div className="volume-level-chips" role="group" aria-label={`${scopeLabel} levels`}>
+          {levels.map((level) => (
+            <button
+              key={level}
+              type="button"
+              className="volume-level-chip"
+              disabled={pending}
+              aria-pressed={display === level}
+              aria-label={`Set ${scopeLabel} volume to ${level}`}
+              onClick={() => {
+                setDragDraft(level);
+                latestLevel.current = level;
+                flush(level);
+              }}
+            >
+              {level}
+            </button>
+          ))}
         </div>
-      </div>
-      <div className="fleet-actions house-remote-actions" role="group" aria-label="House transport">
-        <button
-          type="button"
-          className="btn"
-          disabled={busy !== null}
-          onClick={() => run('mute', () => fleetMuteAll(!allMuted))}
-        >
-          {busy === 'mute' ? '…' : allMuted ? 'Unmute' : 'Mute'}
-        </button>
-        <button
-          type="button"
-          className="btn"
-          disabled={busy !== null || !anyPlaying}
-          title={anyPlaying ? 'Pause all playing rooms' : 'Nothing playing'}
-          onClick={() => run('pause', () => fleetPauseAll())}
-        >
-          {busy === 'pause' ? '…' : 'Pause'}
-        </button>
-        <button
-          type="button"
-          className="btn btn-danger"
-          disabled={busy !== null}
-          title="Stop playback on every player"
-          onClick={() => run('stop', () => fleetStopAll())}
-        >
-          {busy === 'stop' ? '…' : 'Stop'}
-        </button>
-      </div>
+      ) : null}
     </section>
   );
 }
 
-/** Grouped volume controls (left) + fleet-wide mute/pause/stop (right). */
+/** Now-playing house remote (hero) + grouped volume sliders. */
 export function FleetBar() {
   const devices = useFleetStore((s) => s.devices);
   const { residential, ciS2 } = useMemo(() => partitionVolumeGroups(devices), [devices]);
   if (devices.length === 0) return null;
+  const hasVolumes = residential.length > 0 || ciS2.length > 0;
 
   return (
-    <div className="fleet-bar">
-      <div className="fleet-bar-volumes">
-        {residential.length > 0 ? (
-          <GroupVolumePanel
-            title="Global volume"
-            scopeLabel="Rooms"
-            devices={residential}
-            inputId="global-vol"
-            ariaLabel="Set volume on residential Bluesound players"
-          />
-        ) : null}
-        {ciS2.length > 0 ? (
-          <GroupVolumePanel
-            title="CI S2 volume"
-            scopeLabel="S2 zones"
-            devices={ciS2}
-            inputId="ci-s2-vol"
-            ariaLabel="Set volume on NAD CI S2 zones"
-          />
-        ) : null}
-      </div>
-      <FleetActionsPanel />
+    <div className={hasVolumes ? 'fleet-bar' : 'fleet-bar fleet-bar-remote-only'}>
+      <HouseRemote variant="fleet" />
+      {hasVolumes ? (
+        <div className="fleet-bar-rail">
+          {residential.length > 0 ? (
+            <GroupVolumePanel
+              title="Bluesound"
+              scopeLabel="Bluesound"
+              devices={residential}
+              inputId="global-vol"
+              ariaLabel="Set volume on Bluesound players"
+            />
+          ) : null}
+          {ciS2.length > 0 ? (
+            <GroupVolumePanel
+              title="NAD CI S2"
+              scopeLabel="NAD CI S2"
+              devices={ciS2}
+              inputId="ci-s2-vol"
+              ariaLabel="Set volume on NAD CI S2 zones"
+              levels={CI_S2_VOLUME_LEVELS}
+            />
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

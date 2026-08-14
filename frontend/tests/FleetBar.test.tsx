@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FleetBar } from '@/components/GlobalVolumeControl';
@@ -65,7 +65,7 @@ describe('FleetBar house remote art', () => {
       fleetMuteAll: vi.fn(),
       fleetPauseAll: vi.fn(),
       fleetStopAll: vi.fn(),
-      setFleetVolume: vi.fn(),
+      setFleetVolume: vi.fn().mockResolvedValue(undefined),
       holdVolumes: vi.fn(),
     });
   });
@@ -178,7 +178,7 @@ describe('FleetBar house remote art', () => {
     expect(art).toHaveAttribute('href', '/house');
   });
 
-  it('hides artwork when multiple sources are playing', () => {
+  it('hides a single house stream when multiple sources are playing, and lets you pick one', () => {
     useFleetStore.setState({
       devices: [
         player({
@@ -202,10 +202,78 @@ describe('FleetBar house remote art', () => {
     });
 
     renderBar();
-    expect(screen.getByText('2 sources')).toBeInTheDocument();
-    expect(screen.queryByRole('img')).not.toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: /Now playing artwork/ }),
-    ).not.toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'House sources' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Quiet/ })).toHaveAttribute('aria-selected', 'true');
+    const quietArt = screen.getByRole('link', { name: /Now playing artwork — open Quiet/ });
+    expect(quietArt.querySelector('img')).toHaveAttribute('src', 'http://art/quiet.jpg');
+    fireEvent.click(screen.getByRole('tab', { name: /Party/ }));
+    expect(screen.getByRole('tab', { name: /Party/ })).toHaveAttribute('aria-selected', 'true');
+    const partyArt = screen.getByRole('link', { name: /Now playing artwork — open Party/ });
+    expect(partyArt.querySelector('img')).toHaveAttribute('src', 'http://art/party.jpg');
+  });
+
+  it('puts the house remote left of volume', () => {
+    useFleetStore.setState({
+      devices: [
+        player({
+          id: '1',
+          name: 'Kitchen',
+          state: 'play',
+          volume: 26,
+          track: 'Joni',
+        }),
+        player({
+          id: '2',
+          name: 'Patio',
+          model: 'CI S2',
+          brand: 'NAD',
+          full_model: 'NAD CI S2',
+          volume: 60,
+        }),
+      ],
+      sync: null,
+    });
+
+    const { container } = renderBar();
+    const bar = container.querySelector('.fleet-bar');
+    expect(bar?.firstElementChild).toHaveClass('house-remote');
+    expect(bar?.lastElementChild).toHaveClass('fleet-bar-rail');
+    expect(screen.getByRole('heading', { name: 'Bluesound' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'NAD CI S2' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'House' })).toBeInTheDocument();
+  });
+
+  it('sets NAD CI S2 volume from level chips', async () => {
+    const setFleetVolume = vi.fn().mockResolvedValue(undefined);
+    useFleetStore.setState({
+      devices: [
+        player({
+          id: '1',
+          name: 'Kitchen',
+          volume: 26,
+        }),
+        player({
+          id: '2',
+          name: 'Patio',
+          model: 'CI S2',
+          brand: 'NAD',
+          full_model: 'NAD CI S2',
+          volume: 60,
+        }),
+      ],
+      sync: null,
+      setFleetVolume,
+    });
+
+    renderBar();
+    expect(screen.getByRole('group', { name: 'NAD CI S2 levels' })).toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Bluesound levels' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Set NAD CI S2 volume to 60' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Set NAD CI S2 volume to 42' }));
+    await waitFor(() => expect(setFleetVolume).toHaveBeenCalledWith(42, ['2']));
   });
 });

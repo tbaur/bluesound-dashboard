@@ -4,6 +4,7 @@ import {
   fleetHasActivePlayback,
   fleetHouseStatus,
   fleetHouseStatusLine,
+  houseTransportTargets,
 } from '@/lib/fleetStatus';
 
 function player(
@@ -79,10 +80,14 @@ describe('fleetHouseStatus', () => {
       detail: '',
       meta: [],
       isIdle: true,
+      isPaused: false,
       hasDominantStream: false,
       image: '',
       leadId: null,
       sourceCount: 0,
+      album: '',
+      rooms: [],
+      sources: [],
     });
   });
 
@@ -103,15 +108,18 @@ describe('fleetHouseStatus', () => {
         ],
         null,
       ),
-    ).toEqual({
+    ).toMatchObject({
       primary: 'Song — Artist',
       detail: 'AirPlay',
       meta: [],
       isIdle: false,
+      isPaused: false,
       hasDominantStream: true,
       image: 'http://10.0.0.1/art.jpg',
       leadId: '1',
       sourceCount: 1,
+      album: '',
+      rooms: ['Living Room Speakers'],
     });
   });
 
@@ -457,5 +465,95 @@ describe('fleetHouseStatus', () => {
     expect(status.sourceCount).toBe(1);
     expect(status.primary).toBe('Song — Artist');
     expect(status.meta).toContain('2 playing');
+  });
+
+  it('keeps a paused house stream instead of going idle', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '1',
+          name: 'Kitchen',
+          state: 'pause',
+          service: 'TIDAL connect',
+          track: 'Sapana',
+          artist: 'Artist',
+          album: 'Night',
+          image: 'http://art/a.jpg',
+        }),
+        player({ id: '2', name: 'Patio', state: 'stop' }),
+      ],
+      null,
+    );
+    expect(status).toMatchObject({
+      primary: 'Sapana — Artist',
+      detail: 'TIDAL connect',
+      isIdle: false,
+      isPaused: true,
+      hasDominantStream: true,
+      leadId: '1',
+      album: 'Night',
+      rooms: ['Kitchen'],
+      sourceCount: 1,
+    });
+    expect(status.meta).toContain('Paused');
+  });
+
+  it('lists mixed sources so the remote can focus one', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'play',
+          track: 'Party',
+          artist: 'A',
+          image: 'http://art/party.jpg',
+        }),
+        player({
+          id: '2',
+          name: 'Bedroom',
+          state: 'play',
+          track: 'Quiet',
+          artist: 'B',
+          image: 'http://art/quiet.jpg',
+        }),
+      ],
+      null,
+    );
+    expect(status.sourceCount).toBe(2);
+    expect(status.hasDominantStream).toBe(false);
+    expect(status.sources).toHaveLength(2);
+    expect(status.sources.map((s) => s.primary).sort()).toEqual(['Party — A', 'Quiet — B']);
+  });
+
+  it('targets the sync primary for house transport, otherwise every member', () => {
+    const grouped = [
+      player({
+        id: '1',
+        name: 'Hallway',
+        sync_role: 'primary',
+        state: 'play',
+        track: 'A',
+        artist: 'A',
+      }),
+      player({
+        id: '2',
+        name: 'Kitchen',
+        sync_role: 'synced',
+        master: '10.0.0.1:11000',
+        state: 'stream',
+        track: 'A',
+        artist: 'A',
+      }),
+    ];
+    const groupedStatus = fleetHouseStatus(grouped, syncGroup('1', 'Hallway', ['2'], ['Kitchen']));
+    expect(houseTransportTargets(groupedStatus.sources[0], grouped)).toEqual(['1']);
+
+    const parallel = [
+      player({ id: '1', name: 'Front', state: 'play', track: 'Joni', artist: 'M' }),
+      player({ id: '2', name: 'Hall', state: 'stream', track: 'Joni', artist: 'M' }),
+    ];
+    const parallelStatus = fleetHouseStatus(parallel, null);
+    expect(houseTransportTargets(parallelStatus.sources[0], parallel)).toEqual(['1', '2']);
   });
 });

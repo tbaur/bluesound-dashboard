@@ -20,7 +20,7 @@ def settings() -> Settings:
 @pytest.mark.asyncio
 @respx.mock
 async def test_control_endpoints(settings: Settings) -> None:
-    for path in ("/Play", "/Pause", "/Stop", "/Skip", "/Back", "/Volume"):
+    for path in ("/Play", "/Pause", "/Stop", "/Skip", "/Back", "/Volume", "/Shuffle", "/Repeat"):
         respx.get(url__regex=rf"http://192\.168\.1\.20:11000{path}.*").mock(
             return_value=httpx.Response(200, content=b"<ok/>")
         )
@@ -33,6 +33,11 @@ async def test_control_endpoints(settings: Settings) -> None:
         assert await client.back("192.168.1.20")
         assert await client.set_volume("192.168.1.20", 40)
         assert await client.set_mute("192.168.1.20", True)
+        assert await client.seek("192.168.1.20", 90)
+        assert await client.set_shuffle("192.168.1.20", 1)
+        assert await client.set_repeat("192.168.1.20", 2)
+        assert await client.set_shuffle("192.168.1.20", 3) is False
+        assert await client.set_repeat("192.168.1.20", 4) is False
     finally:
         await client.aclose()
 

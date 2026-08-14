@@ -51,6 +51,8 @@ async def test_get_player_status_parses_sync_and_status(settings: Settings) -> N
         assert player.secs == 30
         assert player.totlen == 240
         assert player.can_seek is True
+        assert player.shuffle == 1
+        assert player.repeat == 2
     finally:
         await client.aclose()
 

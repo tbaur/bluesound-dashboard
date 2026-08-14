@@ -142,7 +142,9 @@ async def test_health_and_version(settings: Settings, monkeypatch: pytest.Monkey
         assert health.status_code == 200
         version = await http.get("/api/v1/version")
         assert version.status_code == 200
-        assert "version" in version.json()
+        body = version.json()
+        assert "version" in body
+        assert body["name"] == "bluos-dashboard"
         devices = await http.get("/api/v1/devices")
         assert devices.status_code == 200
         assert len(devices.json()["devices"]) == 1

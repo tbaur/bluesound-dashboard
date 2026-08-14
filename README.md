@@ -1,36 +1,34 @@
-# Bluesound Dashboard
+# BluOS Dashboard
 
-[![Tests](https://github.com/tbaur/bluesound-dashboard/actions/workflows/test.yml/badge.svg)](https://github.com/tbaur/bluesound-dashboard/actions/workflows/test.yml)
+[![Tests](https://github.com/tbaur/bluos-dashboard/actions/workflows/test.yml/badge.svg)](https://github.com/tbaur/bluos-dashboard/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Node](https://img.shields.io/badge/node-22%2B-green.svg)](https://nodejs.org/)
 
-Consolidated LAN dashboard for Bluesound / BluOS players (Custom Integration API **v1.7**). Discovers devices on the network (mDNS + LSDP) and exposes multi-device playback, volume, queue, inputs, presets, Bluetooth, and multi-room controls through a live web UI — the house-wide surface Bluesound apps never shipped.
+LAN dashboard for every BluOS player on your network — Nodes, Pulse, NAD CI zones, and the rest. It discovers the fleet (mDNS + LSDP), then keeps house-wide playback, volume, and grouping live in the browser. Custom Integration API **v1.7**.
 
-Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controller). This dashboard is self-contained (no runtime dependency on the CLI).
+Related CLI: [bluos-controller](https://github.com/tbaur/bluos-controller). This dashboard is self-contained (no runtime dependency on the CLI).
 
-![Fleet view with live players, global volume, and house remote](docs/images/fleet.png)
+![House remote with now playing, room chips, and the live player list](docs/images/fleet.png)
 
 ## Features
 
-- **Discovery** on page load, on demand, and automatic re-scan when the fleet is empty — mDNS browses `_musc` and `_musp` (CI secondary zones as `ip:port`)
-- **Live fleet** via server-side poller + SSE (REST fallback while reconnecting; after prolonged SSE failure, Offline pill + 5s REST poll with SSE retry every 60s)
-- **Playback** play / pause / stop / skip / back / toggle
-- **Volume** absolute level, relative adjust (+/−), mute (per-player and house-wide); residential **Global volume** and **CI S2 volume** are separate controls (different amp scales)
-- **House remote** fleet mute / pause / stop; when one clear house stream dominates, shows track, service, format/bitrate, and album art
-- **Queue** view / clear / reorder
-- **Inputs**, **presets**, **Bluetooth** modes (unsupported players hide BT; probe failures are not treated as hard errors)
-- **Multi-room groups** create groups, add/remove followers, **group all free rooms** under a lead, ungroup one set or **ungroup all**; break all also clears **orphans** whose primary left the network (reparent ungroup)
-- **House page** fleet transport, break-all groups, soft/hard reboot all, firmware inventory + upgrade check
-- **Player settings** audio/player options (EQ, replay gain, LED, standby, …)
-- **Diagnostics** structured per-player status (uptime, signal, network, firmware); hard/soft reboot (API)
-- **Ops** health / readiness endpoints, structured logs, automated releases — see [docs/RUNBOOK.md](docs/RUNBOOK.md)
+- **House remote** — artwork, title/album/source, rooms on the stream, live seek, skip, shuffle/repeat, mute, and stop all. Space play/pause, arrows skip, M mute. When rooms are on different sources, pick which stream the remote drives.
+- **Fleet** — every player, live now-playing, A–Z or clustered by sync group (auto-switches to Sync when a group forms).
+- **Volume** — **Bluesound** (Nodes/Pulse) and **NAD CI S2** are separate sliders (different amp scales). CI S2 also has 42 / 50 / 60 / 70 chips.
+- **Multi-room** — create groups, add/remove followers, group all free rooms under a lead, ungroup one set or all. Break-all also clears orphans whose primary left the network.
+- **Per player** — queue, inputs, presets, Bluetooth, audio/player settings, diagnostics, hard/soft reboot.
+- **House page** — same remote, firmware inventory + upgrade check, reboot all, ungroup all.
+- **Discovery** — on load, on rescan, and automatic re-scan when the fleet is empty. mDNS browses `_musc` and `_musp` (CI secondary zones as `ip:port`).
+- **Live updates** — server poller + SSE, with REST fallback if the stream drops.
+
+Ops (health, logs, LAN bind): [docs/RUNBOOK.md](docs/RUNBOOK.md).
 
 ## Requirements
 
 - Python 3.10+ (CI: 3.10, 3.13, 3.14)
 - Node.js 22+
-- Same LAN as your Bluesound players (discovery and control stay on the local network)
+- Same LAN as your players
 
 ## Quick start
 
@@ -39,31 +37,18 @@ make install   # backend venv + frontend deps
 make run       # API then UI (fails if :8000/:8765 busy; BSD_FORCE_FREE_PORTS=1 to reclaim)
 ```
 
-Open http://127.0.0.1:8765/ (API listens on http://127.0.0.1:8000/). For LAN binds, set `BSD_API_TOKEN` in the repo-root `.env` and the same value as `VITE_API_TOKEN` in `frontend/.env` (Vite does not read the repo-root file) — see [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
+Open http://127.0.0.1:8765/ (API on http://127.0.0.1:8000/).
 
-Full setup and checks: [CONTRIBUTING.md](CONTRIBUTING.md). Ops details: [docs/RUNBOOK.md](docs/RUNBOOK.md). Configuration: [docs/CONFIGURATION.md](docs/CONFIGURATION.md) (copy [.env.example](.env.example) to the repo root when needed).
+For a LAN bind, set `BSD_API_TOKEN` in the repo-root `.env` and the same value as `VITE_API_TOKEN` in `frontend/.env` (Vite does not read the repo-root file). Copy [.env.example](.env.example) when you need non-default settings.
 
-Or two terminals (start UI only after API `/api/v1/healthz` returns 200):
-
-```bash
-# Terminal 1 — API
-cd backend && python3 -m venv .venv && source .venv/bin/activate
-pip install -e ".[dev]" && uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-```
-
-```bash
-# Terminal 2 — UI
-cd frontend && npm ci && npm run dev
-```
+Full setup and checks: [CONTRIBUTING.md](CONTRIBUTING.md). Two-terminal start: [docs/RUNBOOK.md](docs/RUNBOOK.md). Variables: [docs/CONFIGURATION.md](docs/CONFIGURATION.md).
 
 ## Docs
 
-Keep these aligned when behavior changes (see [CONTRIBUTING.md](CONTRIBUTING.md)):
-
 - [Configuration](docs/CONFIGURATION.md) — `BSD_` variables, discovery, network exposure
 - [Runbook](docs/RUNBOOK.md) — start, health, failures, logs
-- [Changelog](CHANGELOG.md) — released history (generated by release-please; do not hand-edit for routine releases)
-- [Security](SECURITY.md) — supported versions and vulnerability reporting
+- [Changelog](CHANGELOG.md) — released history (generated by release-please)
+- [Security](SECURITY.md)
 - [Code of Conduct](CODE_OF_CONDUCT.md)
 - [Releasing](RELEASING.md)
 - [Contributing](CONTRIBUTING.md)

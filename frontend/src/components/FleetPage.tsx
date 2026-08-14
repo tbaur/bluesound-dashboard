@@ -44,9 +44,9 @@ export function FleetPage() {
     <div className="app-shell">
       <header className="app-header">
         <div>
-          <h1 className="brand">Bluesound</h1>
+          <h1 className="brand">BluOS</h1>
           <p className="brand-sub">
-            Live fleet control for every BluOS player on your network — discovered on load, no hardcoded IPs.
+            Live fleet control for every player on your network — discovered on load, no hardcoded IPs.
           </p>
         </div>
         <div className="header-actions">
@@ -75,10 +75,10 @@ export function FleetPage() {
         <div className="empty">Discovering players on the LAN…</div>
       ) : devices.length === 0 ? (
         <div className="empty">
-          No Bluesound players found. Check that devices are powered on and on the same network, then rescan.
+          No players found. Check that devices are powered on and on the same network, then rescan.
         </div>
       ) : (
-        <div className="fleet-table" role="table" aria-label="Bluesound players">
+        <div className="fleet-table" role="table" aria-label="Players">
           <div className="fleet-row fleet-row-head" role="row">
             <div className="fleet-cell" role="columnheader" aria-sort="other">
               <button
@@ -111,7 +111,7 @@ export function FleetPage() {
 
       <footer className="footer">
         <a href={REPO_URL} target="_blank" rel="noopener noreferrer">
-          bluesound-dashboard v{APP_VERSION}
+          bluos-dashboard v{APP_VERSION}
         </a>
         <span className="footer-credit"> / by tbaur</span>
       </footer>

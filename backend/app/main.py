@@ -51,7 +51,7 @@ def _api_home_html(settings: Settings) -> str:
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Bluesound Dashboard</title>
+  <title>BluOS Dashboard</title>
   <style>
     :root {{
       color-scheme: dark;
@@ -151,7 +151,7 @@ def _api_home_html(settings: Settings) -> str:
 <body>
   <div class="app-shell">
     <header class="app-header">
-      <h1 class="brand">Bluesound</h1>
+      <h1 class="brand">BluOS</h1>
       <p class="brand-sub">
         API is up. In local development the React UI runs separately — open it to control the fleet.
       </p>
@@ -203,7 +203,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     settings = get_settings()
     app = FastAPI(
-        title="Bluesound Dashboard",
+        title="BluOS Dashboard",
         version=__version__,
         lifespan=lifespan,
         docs_url="/api/docs" if settings.openapi_enabled() else None,

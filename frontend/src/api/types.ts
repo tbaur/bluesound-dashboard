@@ -37,6 +37,8 @@ export interface PlayerStatus {
   secs: number;
   totlen: number;
   can_seek: boolean;
+  shuffle?: number;
+  repeat?: number;
   input_type_index: string;
   consecutive_failures: number;
   last_seen: number | null;

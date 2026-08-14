@@ -104,11 +104,21 @@ describe('FleetPage sort', () => {
 
   it('defaults to A–Z sort when no runtime groups exist', () => {
     renderFleet();
+    expect(screen.getByRole('heading', { name: 'BluOS' })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        'Live fleet control for every player on your network — discovered on load, no hardcoded IPs.',
+      ),
+    ).toBeInTheDocument();
     expect(
       screen.getByRole('button', {
         name: 'Sort by player, currently A–Z. Click to switch.',
       }),
     ).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /bluos-dashboard v/ })).toHaveAttribute(
+      'href',
+      'https://github.com/tbaur/bluos-dashboard',
+    );
   });
 
   it('switches to Sync sort when runtime groups become enabled', () => {

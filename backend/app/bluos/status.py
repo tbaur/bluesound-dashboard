@@ -147,6 +147,8 @@ class BluOSStatusMixin(BluOSTransport):
             "secs": self._parse_int(text(root, "secs")),
             "totlen": self._parse_int(text(root, "totlen")),
             "can_seek": text(root, "canSeek") in {"1", "true", "True"},
+            "shuffle": max(0, min(1, self._parse_int(text(root, "shuffle"), 0))),
+            "repeat": max(0, min(2, self._parse_int(text(root, "repeat"), 0))),
             "input_type_index": text(root, "inputTypeIndex"),
             "input_id": text(root, "inputId"),
             "group_name": text(root, "groupName"),
@@ -227,6 +229,8 @@ class BluOSStatusMixin(BluOSTransport):
             player.secs = status.get("secs", 0)
             player.totlen = status.get("totlen", 0)
             player.can_seek = status.get("can_seek", False)
+            player.shuffle = status.get("shuffle", 0)
+            player.repeat = status.get("repeat", 0)
             player.input_type_index = status.get("input_type_index", "")
             if status.get("group_name") and not player.group:
                 player.group = status["group_name"]

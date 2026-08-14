@@ -1,6 +1,6 @@
 [project]
-name = "bluesound-dashboard"
+name = "bluos-dashboard"
 version = "0.8.1"
-description = "Consolidated Bluesound / BluOS LAN dashboard"
+description = "Consolidated BluOS LAN dashboard"
 requires-python = ">=3.10"
 license = { text = "Apache-2.0" }

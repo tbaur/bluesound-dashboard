@@ -27,7 +27,10 @@ from app.models import (
     QueueMoveRequest,
     QueueResponse,
     RebootRequest,
+    RepeatRequest,
+    SeekRequest,
     SettingWriteRequest,
+    ShuffleRequest,
     UpgradeStatus,
     VolumeAdjustRequest,
     VolumeRequest,
@@ -218,6 +221,36 @@ async def reboot(device_id: str, body: RebootRequest, state: StateDep) -> Respon
 @router.post("/devices/{device_id}/back", status_code=204)
 async def back(device_id: str, state: StateDep) -> Response:
     return await run_control(state, device_id, "back", state.client.back)
+
+
+@router.post("/devices/{device_id}/seek", status_code=204)
+async def seek(device_id: str, body: SeekRequest, state: StateDep) -> Response:
+    ip = require_device(state, device_id)
+
+    async def op(_: str) -> bool:
+        return await state.client.seek(ip, body.seconds)
+
+    return await run_control(state, device_id, "seek", op)
+
+
+@router.post("/devices/{device_id}/shuffle", status_code=204)
+async def shuffle(device_id: str, body: ShuffleRequest, state: StateDep) -> Response:
+    ip = require_device(state, device_id)
+
+    async def op(_: str) -> bool:
+        return await state.client.set_shuffle(ip, body.state)
+
+    return await run_control(state, device_id, "shuffle", op)
+
+
+@router.post("/devices/{device_id}/repeat", status_code=204)
+async def repeat(device_id: str, body: RepeatRequest, state: StateDep) -> Response:
+    ip = require_device(state, device_id)
+
+    async def op(_: str) -> bool:
+        return await state.client.set_repeat(ip, body.state)
+
+    return await run_control(state, device_id, "repeat", op)
 
 
 @router.post("/devices/{device_id}/volume", status_code=204)

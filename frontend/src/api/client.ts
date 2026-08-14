@@ -113,6 +113,12 @@ export const api = {
   skip: (id: string) => request<void>(`/devices/${id}/skip`, { method: 'POST' }),
   back: (id: string) => request<void>(`/devices/${id}/back`, { method: 'POST' }),
   toggle: (id: string) => request<void>(`/devices/${id}/toggle`, { method: 'POST' }),
+  seek: (id: string, seconds: number) =>
+    request<void>(`/devices/${id}/seek`, { method: 'POST', json: { seconds } }),
+  setShuffle: (id: string, state: 0 | 1) =>
+    request<void>(`/devices/${id}/shuffle`, { method: 'POST', json: { state } }),
+  setRepeat: (id: string, state: 0 | 1 | 2) =>
+    request<void>(`/devices/${id}/repeat`, { method: 'POST', json: { state } }),
   adjustVolume: (id: string, delta: number) =>
     request<void>(`/devices/${id}/volume/adjust`, { method: 'POST', json: { delta } }),
   diagnose: (id: string) => request<DiagnoseResponse>(`/devices/${id}/diagnose`),

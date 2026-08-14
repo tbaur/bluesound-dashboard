@@ -40,12 +40,26 @@ async def test_device_transport_controls(
     for name in ("play", "pause", "stop", "skip", "back"):
         setattr(client, name, AsyncMock(return_value=True))
     client.toggle = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.seek = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.set_shuffle = AsyncMock(return_value=True)  # type: ignore[method-assign]
+    client.set_repeat = AsyncMock(return_value=True)  # type: ignore[method-assign]
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         for path in ("play", "pause", "stop", "skip", "back", "toggle"):
             response = await http.post(f"/api/v1/devices/player-kitchen/{path}")
             assert response.status_code == 204, path
+        seek = await http.post("/api/v1/devices/player-kitchen/seek", json={"seconds": 45})
+        assert seek.status_code == 204
+        client.seek.assert_awaited()
+        shuffle = await http.post("/api/v1/devices/player-kitchen/shuffle", json={"state": 1})
+        assert shuffle.status_code == 204
+        repeat = await http.post("/api/v1/devices/player-kitchen/repeat", json={"state": 2})
+        assert repeat.status_code == 204
+        bad_seek = await http.post("/api/v1/devices/player-kitchen/seek", json={"seconds": -1})
+        assert bad_seek.status_code == 422
+        bad_shuffle = await http.post("/api/v1/devices/player-kitchen/shuffle", json={"state": 3})
+        assert bad_shuffle.status_code == 422
     await client.aclose()
 
 

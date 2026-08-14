@@ -1,4 +1,4 @@
-# Contributing to Bluesound Dashboard
+# Contributing to BluOS Dashboard
 
 Thanks for contributing. This guide covers bugs, features, local setup, and pull requests.
 
@@ -8,7 +8,7 @@ Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ### Reporting bugs
 
-1. Check [Issues](https://github.com/tbaur/bluesound-dashboard/issues) for an existing report.
+1. Check [Issues](https://github.com/tbaur/bluos-dashboard/issues) for an existing report.
 2. Open a new issue with the **Bug Report** template. Include:
    - Dashboard version (footer or `backend/app/__init__.py`)
    - OS, Python, Node, and browser (if UI)
@@ -74,8 +74,8 @@ When behavior users or operators can see changes, update the matching docs in th
 ### Setup
 
 ```bash
-git clone git@github.com:tbaur/bluesound-dashboard.git
-cd bluesound-dashboard
+git clone git@github.com:tbaur/bluos-dashboard.git
+cd bluos-dashboard
 make install
 ```
 
@@ -113,7 +113,7 @@ npm run build
 ## Project structure
 
 ```
-bluesound-dashboard/
+bluos-dashboard/
 ├── Makefile              # make install / build / run
 ├── scripts/              # install, build, run implementations
 ├── backend/app/          # FastAPI app (discovery, BluOS client, API, poller)

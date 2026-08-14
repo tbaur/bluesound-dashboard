@@ -7,6 +7,10 @@ function isPlaying(state: string): boolean {
   return state === 'play' || state === 'stream' || state === 'connecting';
 }
 
+function isPaused(state: string): boolean {
+  return state === 'pause';
+}
+
 function serviceLabel(device: PlayerStatus): string {
   return device.service && device.service !== 'Library/Input' ? device.service : '';
 }
@@ -34,7 +38,7 @@ function nowPlayingLabel(focus: Cluster): { primary: string; detail: string } {
   const quality = resolveStreamMeta(focus);
 
   return {
-    primary: trackArtist || 'Playing',
+    primary: trackArtist || (focus.members.some((m) => isPlaying(m.state)) ? 'Playing' : 'Paused'),
     detail: joinMeta(service, quality),
   };
 }
@@ -76,22 +80,35 @@ function clusterStreamKey(cluster: Cluster): string | null {
   return null;
 }
 
-/** Playing sync groups first, then each free playing room as its own cluster. */
-function playingClusters(
+function sourceKey(cluster: Cluster): string {
+  const identity = clusterStreamKey(cluster);
+  if (identity) return `stream:${identity.replaceAll('\n', '|')}`;
+  return `members:${[...cluster.members.map((m) => m.id)].sort().join(',')}`;
+}
+
+function roomNamesOf(members: PlayerStatus[]): string[] {
+  return [...new Set(members.map((m) => m.name).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b),
+  );
+}
+
+/** Playing (or paused) sync groups first, then each free candidate as its own cluster. */
+function clustersFromCandidates(
   devices: PlayerStatus[],
   sync: SyncState | null,
+  candidates: PlayerStatus[],
 ): Cluster[] {
-  const playing = devices.filter((d) => isPlaying(d.state));
-  if (playing.length === 0) return [];
+  if (candidates.length === 0) return [];
 
+  const wanted = new Set(candidates.map((d) => d.id));
   const byId = new Map(devices.map((d) => [d.id, d]));
   const claimed = new Set<string>();
   const clusters: Cluster[] = [];
 
   const pushGroup = (primary: PlayerStatus, followers: PlayerStatus[]) => {
-    const members = [primary, ...followers].filter((d) => isPlaying(d.state));
+    const members = [primary, ...followers].filter((d) => wanted.has(d.id));
     if (members.length === 0) return;
-    for (const m of members) claimed.add(m.id);
+    for (const member of members) claimed.add(member.id);
     clusters.push({ members, lead: pickLead(members) });
   };
 
@@ -102,26 +119,25 @@ function playingClusters(
         .map((id) => byId.get(id))
         .filter((d): d is PlayerStatus => Boolean(d));
       if (!primary) {
-        // Offline primary: still cluster playing orphans as one house stream.
-        const playingMembers = followers.filter((d) => isPlaying(d.state));
-        if (playingMembers.length === 0) continue;
-        const lead = pickLead(playingMembers);
+        const orphanMembers = followers.filter((d) => wanted.has(d.id));
+        if (orphanMembers.length === 0) continue;
+        const lead = pickLead(orphanMembers);
         pushGroup(
           lead,
-          playingMembers.filter((d) => d.id !== lead.id),
+          orphanMembers.filter((d) => d.id !== lead.id),
         );
         continue;
       }
       pushGroup(primary, followers);
     }
   } else {
-    const primaries = playing
+    const primaries = candidates
       .filter((d) => d.sync_role === 'primary')
       .slice()
       .sort((a, b) => a.name.localeCompare(b.name));
     for (const primary of primaries) {
       const primaryEp = deviceEndpoint(primary);
-      const followers = playing.filter(
+      const followers = candidates.filter(
         (d) =>
           d.sync_role === 'synced' &&
           !claimed.has(d.id) &&
@@ -134,7 +150,7 @@ function playingClusters(
     }
   }
 
-  const free = playing
+  const free = candidates
     .filter((d) => !claimed.has(d.id))
     .slice()
     .sort((a, b) => a.name.localeCompare(b.name));
@@ -166,10 +182,8 @@ function mergeByStreamIdentity(clusters: Cluster[]): Cluster[] {
     const members = list.flatMap((c) => c.members);
     merged.push({ members, lead: pickLead(list.map((c) => c.lead)) });
   }
-  // Keep unkeyed clusters separate — unknown metadata must not glue unrelated rooms.
   merged.push(...unkeyed);
 
-  // Prefer largest source first for stable “house” choice when dominant.
   return merged.sort((a, b) => {
     if (b.members.length !== a.members.length) {
       return b.members.length - a.members.length;
@@ -178,21 +192,104 @@ function mergeByStreamIdentity(clusters: Cluster[]): Cluster[] {
   });
 }
 
-export type FleetHouseStatus = {
-  /** Main line: source room + service, multi-source count, or idle copy. */
+export type HouseStreamSource = {
+  key: string;
+  leadId: string | null;
   primary: string;
-  /** Optional track/artist under the source. */
+  detail: string;
+  image: string;
+  album: string;
+  roomNames: string[];
+  playing: boolean;
+  memberIds: string[];
+};
+
+function clusterToSource(cluster: Cluster): HouseStreamSource {
+  const { primary, detail } = nowPlayingLabel(cluster);
+  const hasSyncPrimary = cluster.members.some((d) => d.sync_role === 'primary');
+  const album =
+    cluster.lead.album.trim() ||
+    cluster.members.find((m) => m.album.trim())?.album.trim() ||
+    '';
+  return {
+    key: sourceKey(cluster),
+    leadId: cluster.members.length === 1 || hasSyncPrimary ? cluster.lead.id : null,
+    primary,
+    detail,
+    image: resolveImage(cluster.lead, cluster.members),
+    album,
+    roomNames: roomNamesOf(cluster.members),
+    playing: cluster.members.some((m) => isPlaying(m.state)),
+    memberIds: cluster.members.map((m) => m.id),
+  };
+}
+
+export type FleetHouseStatus = {
+  /** Main line: track, multi-source count, or idle copy. */
+  primary: string;
+  /** Optional service / format under the title. */
   detail: string;
   /** Short chips: playing count, synced, muted. */
   meta: string[];
   isIdle: boolean;
+  /** Nothing playing, but a paused stream still has metadata. */
+  isPaused: boolean;
   /** One clear house stream — safe to show album art / focus a lead. */
   hasDominantStream: boolean;
   image: string;
   leadId: string | null;
   /** Distinct playback sources (sync groups / identities), not player count. */
   sourceCount: number;
+  album: string;
+  rooms: string[];
+  sources: HouseStreamSource[];
 };
+
+function emptyHouseStatus(partial: Partial<FleetHouseStatus> = {}): FleetHouseStatus {
+  return {
+    primary: 'All quiet',
+    detail: '',
+    meta: [],
+    isIdle: true,
+    isPaused: false,
+    hasDominantStream: false,
+    image: '',
+    leadId: null,
+    sourceCount: 0,
+    album: '',
+    rooms: [],
+    sources: [],
+    ...partial,
+  };
+}
+
+function houseStreams(
+  devices: PlayerStatus[],
+  sync: SyncState | null,
+): HouseStreamSource[] {
+  const playing = devices.filter((d) => isPlaying(d.state));
+  const candidates =
+    playing.length > 0
+      ? playing
+      : devices.filter((d) => isPaused(d.state) && streamKey(d));
+  return mergeByStreamIdentity(clustersFromCandidates(devices, sync, candidates)).map(
+    clusterToSource,
+  );
+}
+
+/** Devices the house remote should command for a focused stream. */
+export function houseTransportTargets(
+  source: HouseStreamSource,
+  devices: PlayerStatus[],
+): string[] {
+  const byId = new Map(devices.map((d) => [d.id, d]));
+  const members = source.memberIds
+    .map((id) => byId.get(id))
+    .filter((d): d is PlayerStatus => Boolean(d));
+  const primary = members.find((d) => d.sync_role === 'primary');
+  if (primary) return [primary.id];
+  return members.map((d) => d.id);
+}
 
 /** Structured house status for the fleet remote panel. */
 export function fleetHouseStatus(
@@ -200,16 +297,7 @@ export function fleetHouseStatus(
   sync: SyncState | null,
 ): FleetHouseStatus {
   if (devices.length === 0) {
-    return {
-      primary: 'No players',
-      detail: '',
-      meta: [],
-      isIdle: true,
-      hasDominantStream: false,
-      image: '',
-      leadId: null,
-      sourceCount: 0,
-    };
+    return emptyHouseStatus({ primary: 'No players' });
   }
 
   const playing = devices.filter((d) => isPlaying(d.state));
@@ -217,74 +305,57 @@ export function fleetHouseStatus(
   const groupCount =
     sync?.groups.length ??
     devices.filter((d) => d.sync_role === 'primary').length;
-
+  const sources = houseStreams(devices, sync);
   const meta: string[] = [];
-
-  if (playing.length === 0) {
-    if (mutedCount > 0) {
-      meta.push(`${mutedCount} muted`);
-    }
-    if (groupCount > 0) {
-      meta.push(groupCount === 1 ? 'Synced' : `${groupCount} groups`);
-    }
-    return {
-      primary: 'All quiet',
-      detail: '',
-      meta,
-      isIdle: true,
-      hasDominantStream: false,
-      image: '',
-      leadId: null,
-      sourceCount: 0,
-    };
-  }
-
-  const sources = mergeByStreamIdentity(playingClusters(devices, sync));
-  const sourceCount = Math.max(sources.length, 1);
-  const focus = sourceCount === 1 ? sources[0] : undefined;
 
   if (playing.length > 1) {
     meta.push(`${playing.length} playing`);
   }
+  if (playing.length === 0 && sources.length > 0) {
+    meta.push('Paused');
+  }
   if (groupCount === 1) {
     meta.push('Synced');
-  } else if (groupCount > 1) {
+  } else if (groupCount > 0) {
     meta.push(`${groupCount} groups`);
   }
   if (mutedCount > 0) {
     meta.push(`${mutedCount} muted`);
   }
 
-  if (!focus) {
-    return {
-      primary: `${sourceCount} sources`,
-      detail: 'Mixed playback across the house',
-      meta,
-      isIdle: false,
-      hasDominantStream: false,
-      image: '',
-      leadId: null,
-      sourceCount,
-    };
+  if (sources.length === 0) {
+    return emptyHouseStatus({ meta });
   }
 
-  const lead = focus.lead;
-  const hasSyncPrimary = focus.members.some((d) => d.sync_role === 'primary');
-  const { primary, detail } = nowPlayingLabel(focus);
+  const sourceCount = sources.length;
+  const isPausedHouse = playing.length === 0;
+  if (sourceCount > 1) {
+    return emptyHouseStatus({
+      primary: `${sourceCount} sources`,
+      detail: isPausedHouse ? 'Mixed paused rooms' : 'Mixed playback across the house',
+      meta,
+      isIdle: false,
+      isPaused: isPausedHouse,
+      hasDominantStream: false,
+      sourceCount,
+      sources,
+    });
+  }
 
-  // Art deep-links to a player only when that player is a real group lead (or solo).
-  const leadId =
-    focus.members.length === 1 || hasSyncPrimary ? lead.id : null;
-
+  const focus = sources[0];
   return {
-    primary,
-    detail,
+    primary: focus.primary,
+    detail: focus.detail,
     meta,
     isIdle: false,
+    isPaused: isPausedHouse,
     hasDominantStream: true,
-    image: resolveImage(lead, focus.members),
-    leadId,
+    image: focus.image,
+    leadId: focus.leadId,
     sourceCount: 1,
+    album: focus.album,
+    rooms: focus.roomNames,
+    sources,
   };
 }
 

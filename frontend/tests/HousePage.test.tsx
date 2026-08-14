@@ -7,11 +7,23 @@ import { useFleetStore } from '@/store/fleetStore';
 
 const fleetUpgrades = vi.fn();
 const syncBreak = vi.fn();
+const toggle = vi.fn();
+const skip = vi.fn();
+const back = vi.fn();
+const seek = vi.fn();
+const setShuffle = vi.fn();
+const setRepeat = vi.fn();
 
 vi.mock('@/api/client', () => ({
   api: {
     fleetUpgrades: (...args: unknown[]) => fleetUpgrades(...args),
     syncBreak: (...args: unknown[]) => syncBreak(...args),
+    toggle: (...args: unknown[]) => toggle(...args),
+    skip: (...args: unknown[]) => skip(...args),
+    back: (...args: unknown[]) => back(...args),
+    seek: (...args: unknown[]) => seek(...args),
+    setShuffle: (...args: unknown[]) => setShuffle(...args),
+    setRepeat: (...args: unknown[]) => setRepeat(...args),
   },
 }));
 
@@ -78,6 +90,12 @@ describe('HousePage actions', () => {
   beforeEach(() => {
     fleetUpgrades.mockReset();
     syncBreak.mockReset();
+    toggle.mockReset().mockResolvedValue(undefined);
+    skip.mockReset().mockResolvedValue(undefined);
+    back.mockReset().mockResolvedValue(undefined);
+    seek.mockReset().mockResolvedValue(undefined);
+    setShuffle.mockReset().mockResolvedValue(undefined);
+    setRepeat.mockReset().mockResolvedValue(undefined);
     fleetUpgrades.mockResolvedValue({
       checked: 1,
       updates_available: 0,
@@ -113,6 +131,9 @@ describe('HousePage actions', () => {
       refresh: vi.fn().mockResolvedValue(undefined),
       reloadStatus: vi.fn().mockResolvedValue(undefined),
       holdSync: vi.fn(),
+      control: vi.fn(async (_id: string, action: () => Promise<void>) => {
+        await action();
+      }),
       setToast: vi.fn((toast: string | null) => {
         useFleetStore.setState({ toast });
       }),
@@ -124,8 +145,8 @@ describe('HousePage actions', () => {
     expect(screen.getAllByRole('heading', { name: 'Devices' })).toHaveLength(1);
     expect(screen.queryByRole('heading', { name: 'Firmware' })).not.toBeInTheDocument();
     expect(screen.queryByRole('heading', { name: 'Rooms' })).not.toBeInTheDocument();
-    expect(screen.getAllByText('Kitchen')).toHaveLength(1);
-    expect(screen.getAllByText('Living')).toHaveLength(1);
+    expect(screen.getByRole('link', { name: /Kitchen/ })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Living/ })).toBeInTheDocument();
     expect(screen.getByText('online / play / vol 20 / fw 4.16.6')).toBeInTheDocument();
     expect(
       screen.getByText('online / play / vol 20 / fw 4.10.0 / behind house newest'),
@@ -143,15 +164,15 @@ describe('HousePage actions', () => {
     });
   });
 
-  it('mutes, pauses, and stops the fleet', async () => {
+  it('mutes and stops the fleet from the house remote', async () => {
     const state = useFleetStore.getState();
     renderHouse();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Mute all' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Mute' }));
     await waitFor(() => expect(state.fleetMuteAll).toHaveBeenCalledWith(true));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Pause all' }));
-    await waitFor(() => expect(state.fleetPauseAll).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: 'Pause house stream' }));
+    await waitFor(() => expect(toggle).toHaveBeenCalled());
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop all' }));
     await waitFor(() => expect(state.fleetStopAll).toHaveBeenCalled());

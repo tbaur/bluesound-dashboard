@@ -39,3 +39,18 @@ class BluOSPlaybackMixin(BluOSTransport):
             await self._get(ip, "/Volume", query=f"mute={1 if mute else 0}", control=True)
         ) is not None
 
+    async def seek(self, ip: str, seconds: int) -> bool:
+        """Seek the current track via BluOS v1.7 GET /Play?seek=."""
+        secs = max(0, min(86_400, int(seconds)))
+        return (await self._get(ip, "/Play", query=f"seek={secs}", control=True)) is not None
+
+    async def set_shuffle(self, ip: str, state: int) -> bool:
+        if state not in (0, 1):
+            return False
+        return (await self._get(ip, "/Shuffle", query=f"state={state}", control=True)) is not None
+
+    async def set_repeat(self, ip: str, state: int) -> bool:
+        if state not in (0, 1, 2):
+            return False
+        return (await self._get(ip, "/Repeat", query=f"state={state}", control=True)) is not None
+

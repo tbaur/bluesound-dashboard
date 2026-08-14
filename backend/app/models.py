@@ -51,6 +51,8 @@ class PlayerStatus(BaseModel):
     secs: int = 0
     totlen: int = 0
     can_seek: bool = False
+    shuffle: int = 0
+    repeat: int = 0
     input_type_index: str = ""
     consecutive_failures: int = 0
     last_seen: float | None = None
@@ -70,6 +72,18 @@ class VolumeRequest(BaseModel):
 
 class VolumeAdjustRequest(BaseModel):
     delta: int = Field(ge=-100, le=100)
+
+
+class SeekRequest(BaseModel):
+    seconds: int = Field(ge=0, le=86_400)
+
+
+class ShuffleRequest(BaseModel):
+    state: Literal[0, 1]
+
+
+class RepeatRequest(BaseModel):
+    state: Literal[0, 1, 2]
 
 
 class RebootRequest(BaseModel):
@@ -326,7 +340,7 @@ class ErrorBody(BaseModel):
 
 class VersionInfo(BaseModel):
     version: str
-    name: str = "bluesound-dashboard"
+    name: str = "bluos-dashboard"
 
 
 class HealthResponse(BaseModel):

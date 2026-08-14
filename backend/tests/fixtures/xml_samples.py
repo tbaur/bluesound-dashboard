@@ -22,6 +22,8 @@ STATUS = b"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
   <secs>30</secs>
   <totlen>240</totlen>
   <canSeek>1</canSeek>
+  <shuffle>1</shuffle>
+  <repeat>2</repeat>
   <db>-42.0</db>
 </status>
 """
