@@ -1,6 +1,6 @@
 # BluOS Dashboard
 
-[![Tests](https://github.com/tbaur/bluos-dashboard/actions/workflows/test.yml/badge.svg)](https://github.com/tbaur/bluos-dashboard/actions/workflows/test.yml)
+[![Tests](https://github.com/tbaur/bluos-dashboard/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/tbaur/bluos-dashboard/actions/workflows/test.yml?query=branch%3Amain)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Node](https://img.shields.io/badge/node-22%2B-green.svg)](https://nodejs.org/)
