@@ -1,13 +1,13 @@
-# Bluesound Dashboard
+# BluOS Dashboard
 
-[![Tests](https://github.com/tbaur/bluesound-dashboard/actions/workflows/test.yml/badge.svg)](https://github.com/tbaur/bluesound-dashboard/actions/workflows/test.yml)
+[![Tests](https://github.com/tbaur/bluos-dashboard/actions/workflows/test.yml/badge.svg)](https://github.com/tbaur/bluos-dashboard/actions/workflows/test.yml)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Node](https://img.shields.io/badge/node-22%2B-green.svg)](https://nodejs.org/)
 
-Consolidated LAN dashboard for Bluesound / BluOS players (Custom Integration API **v1.7**). Discovers devices on the network (mDNS + LSDP) and exposes multi-device playback, volume, queue, inputs, presets, Bluetooth, and multi-room controls through a live web UI — the house-wide surface Bluesound apps never shipped.
+Consolidated LAN dashboard for BluOS players (Custom Integration API **v1.7**). Discovers devices on the network (mDNS + LSDP) and exposes multi-device playback, volume, queue, inputs, presets, Bluetooth, and multi-room controls through a live web UI — the house-wide surface the official apps never shipped.
 
-Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controller). This dashboard is self-contained (no runtime dependency on the CLI).
+Related CLI: [bluos-controller](https://github.com/tbaur/bluos-controller). This dashboard is self-contained (no runtime dependency on the CLI).
 
 ![Fleet view with live players, global volume, and house remote](docs/images/fleet.png)
 
@@ -16,8 +16,8 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 - **Discovery** on page load, on demand, and automatic re-scan when the fleet is empty — mDNS browses `_musc` and `_musp` (CI secondary zones as `ip:port`)
 - **Live fleet** via server-side poller + SSE (REST fallback while reconnecting; after prolonged SSE failure, Offline pill + 5s REST poll with SSE retry every 60s)
 - **Playback** play / pause / stop / skip / back / toggle
-- **Volume** absolute level, relative adjust (+/−), mute (per-player and house-wide); residential **Global volume** and **CI S2 volume** are separate controls (different amp scales)
-- **House remote** fleet mute / pause / stop; when one clear house stream dominates, shows track, service, format/bitrate, and album art
+- **Volume** absolute level, relative adjust (+/−), mute (per-player and house-wide); **Bluesound** and **NAD CI S2** are separate sliders (different amp scales)
+- **House remote** now-playing hero: artwork, live/seekable progress, skip/shuffle/repeat on the house stream, room chips, and a source picker when the house is mixed; fleet mute / stop all (pause all when mixed)
 - **Queue** view / clear / reorder
 - **Inputs**, **presets**, **Bluetooth** modes (unsupported players hide BT; probe failures are not treated as hard errors)
 - **Multi-room groups** create groups, add/remove followers, **group all free rooms** under a lead, ungroup one set or **ungroup all**; break all also clears **orphans** whose primary left the network (reparent ungroup)
@@ -30,7 +30,7 @@ Related CLI: [bluesound-controller](https://github.com/tbaur/bluesound-controlle
 
 - Python 3.10+ (CI: 3.10, 3.13, 3.14)
 - Node.js 22+
-- Same LAN as your Bluesound players (discovery and control stay on the local network)
+- Same LAN as your players (discovery and control stay on the local network)
 
 ## Quick start
 

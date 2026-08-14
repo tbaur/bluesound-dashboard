@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class BluOSWebUIMixin(BluOSTransport):
     async def reboot(self, ip: str, *, soft: bool = False) -> bool:
-        """Reboot via the device web UI (:80), matching bluesound-controller / native UI.
+        """Reboot via the device web UI (:80), matching bluos-controller / native UI.
 
         Soft: POST /Reboot soft=1. Hard: POST /reboot yes=1.
         BluOS :11000 has no /reboot|/Reboot handlers (404).

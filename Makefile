@@ -1,4 +1,4 @@
-# Bluesound Dashboard — common developer entry points.
+# BluOS Dashboard — common developer entry points.
 # Prefer these targets over ad-hoc uvicorn/vite launches.
 
 .PHONY: help install build run

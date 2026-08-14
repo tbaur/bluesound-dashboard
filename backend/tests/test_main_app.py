@@ -164,7 +164,7 @@ async def test_root_serves_api_home_when_spa_missing(
             assert home.status_code == 200
             assert "text/html" in home.headers["content-type"]
             assert 'class="brand"' in home.text
-            assert "Bluesound" in home.text
+            assert "BluOS" in home.text
             assert "--font-display" in home.text
             assert "http://127.0.0.1:8765/" in home.text
             assert "/api/docs" in home.text

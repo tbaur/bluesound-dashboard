@@ -242,8 +242,8 @@ export function PlayerRow({ device }: { device: PlayerStatus }) {
             className="volume-linked"
             title={
               isCiS2Device(device)
-                ? 'CI S2 zones share this volume'
-                : 'Residential players share this volume'
+                ? 'NAD CI S2 players share this volume'
+                : 'Bluesound players share this volume'
             }
           >
             link

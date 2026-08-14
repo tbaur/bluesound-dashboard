@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Start Bluesound Dashboard for local development in the only safe order:
+# Start BluOS Dashboard for local development in the only safe order:
 # API first → wait for healthz → UI. Avoids Vite proxying to a dead :8000.
 set -euo pipefail
 

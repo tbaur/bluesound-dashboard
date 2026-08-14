@@ -83,6 +83,9 @@ function mergeRemoteDevice(
       state: previous.state,
       muted: previous.muted,
       volume: previous.volume,
+      secs: previous.secs,
+      shuffle: previous.shuffle,
+      repeat: previous.repeat,
     };
   }
   return next;
@@ -561,6 +564,13 @@ export const useFleetStore = create<FleetState>((set, get) => ({
         if (optimistic.state !== undefined || optimistic.muted !== undefined) {
           playbackHoldUntil[deviceId] = now + PLAYBACK_HOLD_MS;
         }
+        if (
+          optimistic.secs !== undefined ||
+          optimistic.shuffle !== undefined ||
+          optimistic.repeat !== undefined
+        ) {
+          playbackHoldUntil[deviceId] = now + PLAYBACK_HOLD_MS;
+        }
         if (optimistic.volume !== undefined) {
           volumeHoldUntil[deviceId] = now + VOLUME_HOLD_MS;
         }
@@ -576,7 +586,13 @@ export const useFleetStore = create<FleetState>((set, get) => ({
     try {
       await action();
       // Extend hold so a slow BluOS status poll can't snap the UI back
-      if (optimistic?.muted !== undefined || optimistic?.state !== undefined) {
+      if (
+        optimistic?.muted !== undefined ||
+        optimistic?.state !== undefined ||
+        optimistic?.secs !== undefined ||
+        optimistic?.shuffle !== undefined ||
+        optimistic?.repeat !== undefined
+      ) {
         get().holdPlayback(deviceId, PLAYBACK_HOLD_MS);
       }
       if (optimistic?.volume !== undefined) {

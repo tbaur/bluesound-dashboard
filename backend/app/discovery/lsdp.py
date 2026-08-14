@@ -1,4 +1,4 @@
-"""LSDP (Lenbrook Service Discovery Protocol) — adapted from bluesound-controller."""
+"""LSDP (Lenbrook Service Discovery Protocol) — adapted from bluos-controller."""
 
 from __future__ import annotations
 

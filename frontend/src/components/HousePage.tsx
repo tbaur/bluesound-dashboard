@@ -3,25 +3,11 @@ import { Link } from 'react-router';
 import { api } from '@/api/client';
 import type { FleetUpgradeResponse, UpgradeStatus } from '@/api/types';
 import { ApiError } from '@/api/types';
+import { HouseRemote } from '@/components/HouseRemote';
+import { compareFirmware } from '@/lib/firmware';
 import { sortDevices } from '@/lib/fleetSort';
-import {
-  fleetHasActivePlayback,
-  fleetHouseStatus,
-  fleetHouseStatusLine,
-} from '@/lib/fleetStatus';
 import { META_SEP } from '@/lib/meta';
 import { useFleetStore } from '@/store/fleetStore';
-
-function compareFw(a: string, b: string): number {
-  const pa = a.split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const pb = b.split('.').map((part) => Number.parseInt(part, 10) || 0);
-  const len = Math.max(pa.length, pb.length);
-  for (let i = 0; i < len; i += 1) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d;
-  }
-  return 0;
-}
 
 export function HousePage() {
   const devices = useFleetStore((s) => s.devices);
@@ -33,24 +19,17 @@ export function HousePage() {
   const refresh = useFleetStore((s) => s.refresh);
   const reloadStatus = useFleetStore((s) => s.reloadStatus);
   const holdSync = useFleetStore((s) => s.holdSync);
-  const fleetMuteAll = useFleetStore((s) => s.fleetMuteAll);
-  const fleetPauseAll = useFleetStore((s) => s.fleetPauseAll);
-  const fleetStopAll = useFleetStore((s) => s.fleetStopAll);
   const fleetRebootAll = useFleetStore((s) => s.fleetRebootAll);
 
   const [busy, setBusy] = useState<string | null>(null);
   const [upgradeReport, setUpgradeReport] = useState<FleetUpgradeResponse | null>(null);
 
-  const status = fleetHouseStatus(devices, sync);
-  const statusTitle = fleetHouseStatusLine(devices, sync);
-  const allMuted = devices.length > 0 && devices.every((d) => d.muted);
-  const anyPlaying = fleetHasActivePlayback(devices);
   const groupCount = sync?.groups.length ?? 0;
   const sorted = useMemo(() => sortDevices(devices, 'name'), [devices]);
 
   const firmware = useMemo(() => {
     const versions = sorted.map((d) => d.fw).filter(Boolean);
-    const unique = [...new Set(versions)].sort(compareFw);
+    const unique = [...new Set(versions)].sort(compareFirmware);
     const newest = unique.length ? unique[unique.length - 1] : '';
     const byId = new Map<string, UpgradeStatus>();
     for (const row of upgradeReport?.results ?? []) {
@@ -122,20 +101,12 @@ export function HousePage() {
             ← Fleet
           </Link>
           <h1 className="brand dossier-title">House</h1>
-          <p className="brand-sub" title={statusTitle}>
-            {status.primary}
-            {status.detail ? ` — ${status.detail}` : ''}
-          </p>
+          <p className="brand-sub">Fleet maintenance, firmware, and the same remote as the live view.</p>
         </div>
         <div className="dossier-header-badges">
           <span className="badge" data-role="primary">
             {devices.length} device{devices.length === 1 ? '' : 's'}
           </span>
-          {status.meta.map((item) => (
-            <span key={item} className="badge">
-              {item}
-            </span>
-          ))}
         </div>
       </header>
 
@@ -150,13 +121,15 @@ export function HousePage() {
         </div>
       ) : null}
 
+      {devices.length > 0 ? <HouseRemote variant="page" /> : null}
+
       <section className="panel">
         <h2>Devices</h2>
         <ul className="house-room-list">
           {sorted.map((device) => {
             const row = firmware.byId.get(device.id);
             const behind = Boolean(
-              firmware.newest && device.fw && compareFw(device.fw, firmware.newest) < 0,
+              firmware.newest && device.fw && compareFirmware(device.fw, firmware.newest) < 0,
             );
             let fwNote = '';
             if (row) {
@@ -191,39 +164,6 @@ export function HousePage() {
             onClick={() => run('upgrade', checkUpgrades)}
           >
             {busy === 'upgrade' ? 'Checking…' : 'Check all for upgrades'}
-          </button>
-        </div>
-      </section>
-
-      <section className="panel">
-        <h2>Transport</h2>
-        <p className="card-meta" style={{ marginBottom: 12 }}>
-          Same controls as the fleet House remote — mute, pause, or stop every player.
-        </p>
-        <div className="fleet-actions" role="group" aria-label="House transport">
-          <button
-            type="button"
-            className="btn"
-            disabled={busy !== null || devices.length === 0}
-            onClick={() => run('mute', () => fleetMuteAll(!allMuted))}
-          >
-            {busy === 'mute' ? '…' : allMuted ? 'Unmute all' : 'Mute all'}
-          </button>
-          <button
-            type="button"
-            className="btn"
-            disabled={busy !== null || !anyPlaying}
-            onClick={() => run('pause', () => fleetPauseAll())}
-          >
-            {busy === 'pause' ? '…' : 'Pause all'}
-          </button>
-          <button
-            type="button"
-            className="btn btn-danger"
-            disabled={busy !== null || devices.length === 0}
-            onClick={() => run('stop', () => fleetStopAll())}
-          >
-            {busy === 'stop' ? '…' : 'Stop all'}
           </button>
         </div>
       </section>

@@ -1,4 +1,4 @@
-"""Console entrypoint for `bluesound-dashboard`."""
+"""Console entrypoint for `bluos-dashboard`."""
 
 from __future__ import annotations
 
