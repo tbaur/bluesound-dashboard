@@ -2,12 +2,21 @@ import { create } from 'zustand';
 import { api } from '@/api/client';
 import type { FleetHealthResponse, PlayerStatus, SyncState } from '@/api/types';
 import { ApiError } from '@/api/types';
+import {
+  houseCatchupSession,
+  houseStoppedSession,
+  LIVE_HOUSE_SESSION,
+  type HouseSession,
+} from '@/lib/houseSession';
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offline';
 
 const VOLUME_HOLD_MS = 2500;
 const PLAYBACK_HOLD_MS = 2000;
 const MUTE_HOLD_MS = 4500;
+const HOUSE_CATCHUP_MS = 10_000;
+
+let houseCatchupTimer: number | undefined;
 
 interface FleetState {
   devices: PlayerStatus[];
@@ -22,8 +31,11 @@ interface FleetState {
   toast: string | null;
   /** Device ids whose volume should not be overwritten by SSE yet */
   volumeHoldUntil: Record<string, number>;
-  /** Device ids whose playback/mute should not be overwritten by SSE yet */
+  /** Device ids whose transport/now-playing should not be overwritten by SSE yet */
   playbackHoldUntil: Record<string, number>;
+  /** Device ids whose mute should not be overwritten by SSE yet */
+  muteHoldUntil: Record<string, number>;
+  houseSession: HouseSession;
   globalVolumeHoldUntil: number;
   /** Ignore stale sync snapshots while BluOS catches up after AddSlave. */
   syncHoldUntil: number;
@@ -43,6 +55,9 @@ interface FleetState {
   holdAllVolumes: (ms?: number) => void;
   holdVolumes: (deviceIds: string[], ms?: number) => void;
   holdPlayback: (deviceId: string, ms?: number) => void;
+  holdMute: (deviceId: string, ms?: number) => void;
+  beginHouseCatchup: (memberIds: string[], ms?: number) => void;
+  beginHouseStopped: () => void;
   holdSync: (ms?: number) => void;
   setConnection: (connection: ConnectionState) => void;
   setSync: (sync: SyncState | null) => void;
@@ -82,7 +97,37 @@ function isVolumeOnlyPatch(patch?: Partial<PlayerStatus>): boolean {
   );
 }
 
-/** Freeze transport; keep artwork/title through empty skip/back polls. */
+function isMutePatch(patch?: Partial<PlayerStatus>): boolean {
+  return Boolean(patch && patch.muted !== undefined);
+}
+
+function activeHouseIds(devices: PlayerStatus[], extra: string[]): string[] {
+  const ids = new Set(extra);
+  for (const device of devices) {
+    if (
+      device.state === 'play' ||
+      device.state === 'stream' ||
+      device.state === 'connecting'
+    ) {
+      ids.add(device.id);
+    }
+  }
+  return [...ids];
+}
+
+function stampHold(
+  current: Record<string, number>,
+  ids: Iterable<string>,
+  until: number,
+): Record<string, number> {
+  const next = { ...current };
+  for (const id of ids) {
+    next[id] = until;
+  }
+  return next;
+}
+
+/** Freeze transport/now-playing; mute and volume have their own holds. */
 function applyPlaybackHold(incoming: PlayerStatus, previous: PlayerStatus): PlayerStatus {
   const keepMeta = !hasTrackMeta(incoming) && hasTrackMeta(previous);
   const keepSecs = keepMeta || (hasTrackMeta(incoming) && isSameTrack(incoming, previous));
@@ -90,16 +135,14 @@ function applyPlaybackHold(incoming: PlayerStatus, previous: PlayerStatus): Play
   return {
     ...incoming,
     state: previous.state,
-    muted: previous.muted,
-    volume: previous.volume,
     shuffle: previous.shuffle,
     repeat: previous.repeat,
     secs: keepSecs ? previous.secs : incoming.secs,
     track: meta.track,
     artist: meta.artist,
     album: meta.album,
-    image: meta.image || previous.image,
-    totlen: keepMeta ? previous.totlen : incoming.totlen,
+    image: previous.image || incoming.image,
+    totlen: keepMeta || incoming.totlen <= 0 ? previous.totlen : incoming.totlen,
     quality: meta.quality,
     stream_format: meta.stream_format,
     service: meta.service,
@@ -108,25 +151,41 @@ function applyPlaybackHold(incoming: PlayerStatus, previous: PlayerStatus): Play
   };
 }
 
+type RemoteHolds = {
+  volumeHoldUntil: Record<string, number>;
+  playbackHoldUntil: Record<string, number>;
+  muteHoldUntil: Record<string, number>;
+  globalVolumeHoldUntil: number;
+  now: number;
+};
+
 function mergeRemoteDevice(
   incoming: PlayerStatus,
   previous: PlayerStatus | undefined,
-  volumeHoldUntil: Record<string, number>,
-  playbackHoldUntil: Record<string, number>,
-  globalVolumeHoldUntil: number,
-  now: number,
+  holds: RemoteHolds,
 ): PlayerStatus {
   if (!previous) return incoming;
   let next = incoming;
+  const holdMute = (holds.muteHoldUntil[incoming.id] ?? 0) > holds.now;
   const holdVolume =
-    globalVolumeHoldUntil > now || (volumeHoldUntil[incoming.id] ?? 0) > now;
-  if (holdVolume) {
+    holds.globalVolumeHoldUntil > holds.now ||
+    (holds.volumeHoldUntil[incoming.id] ?? 0) > holds.now;
+  if (holdMute) {
+    next = { ...next, muted: previous.muted, volume: previous.volume };
+  } else if (holdVolume) {
     next = { ...next, volume: previous.volume };
   }
-  if ((playbackHoldUntil[incoming.id] ?? 0) > now) {
+  if ((holds.playbackHoldUntil[incoming.id] ?? 0) > holds.now) {
     next = applyPlaybackHold(next, previous);
   }
   return next;
+}
+
+function clearHouseCatchupTimer() {
+  if (houseCatchupTimer !== undefined) {
+    window.clearTimeout(houseCatchupTimer);
+    houseCatchupTimer = undefined;
+  }
 }
 
 export const useFleetStore = create<FleetState>((set, get) => ({
@@ -142,6 +201,8 @@ export const useFleetStore = create<FleetState>((set, get) => ({
   toast: null,
   volumeHoldUntil: {},
   playbackHoldUntil: {},
+  muteHoldUntil: {},
+  houseSession: LIVE_HOUSE_SESSION,
   globalVolumeHoldUntil: 0,
   syncHoldUntil: 0,
   lastAudibleVolume: {},
@@ -150,15 +211,15 @@ export const useFleetStore = create<FleetState>((set, get) => ({
     const now = Date.now();
     const state = get();
     const byId = new Map(state.devices.map((d) => [d.id, d]));
+    const holds = {
+      volumeHoldUntil: state.volumeHoldUntil,
+      playbackHoldUntil: state.playbackHoldUntil,
+      muteHoldUntil: state.muteHoldUntil,
+      globalVolumeHoldUntil: state.globalVolumeHoldUntil,
+      now,
+    };
     const merged = devices.map((incoming) =>
-      mergeRemoteDevice(
-        incoming,
-        byId.get(incoming.id),
-        state.volumeHoldUntil,
-        state.playbackHoldUntil,
-        state.globalVolumeHoldUntil,
-        now,
-      ),
+      mergeRemoteDevice(incoming, byId.get(incoming.id), holds),
     );
     set({
       devices: merged,
@@ -172,14 +233,13 @@ export const useFleetStore = create<FleetState>((set, get) => ({
     set((state) => {
       const now = Date.now();
       const previous = state.devices.find((d) => d.id === device.id);
-      const merged = mergeRemoteDevice(
-        device,
-        previous,
-        state.volumeHoldUntil,
-        state.playbackHoldUntil,
-        state.globalVolumeHoldUntil,
+      const merged = mergeRemoteDevice(device, previous, {
+        volumeHoldUntil: state.volumeHoldUntil,
+        playbackHoldUntil: state.playbackHoldUntil,
+        muteHoldUntil: state.muteHoldUntil,
+        globalVolumeHoldUntil: state.globalVolumeHoldUntil,
         now,
-      );
+      });
       const exists = Boolean(previous);
       return {
         devices: exists
@@ -239,6 +299,32 @@ export const useFleetStore = create<FleetState>((set, get) => ({
         [deviceId]: Date.now() + ms,
       },
     })),
+
+  holdMute: (deviceId, ms = MUTE_HOLD_MS) =>
+    set((state) => ({
+      muteHoldUntil: {
+        ...state.muteHoldUntil,
+        [deviceId]: Date.now() + ms,
+      },
+    })),
+
+  beginHouseCatchup: (memberIds, ms = HOUSE_CATCHUP_MS) => {
+    clearHouseCatchupTimer();
+    if (memberIds.length === 0) {
+      set({ houseSession: LIVE_HOUSE_SESSION });
+      return;
+    }
+    set({ houseSession: houseCatchupSession(memberIds) });
+    houseCatchupTimer = window.setTimeout(() => {
+      houseCatchupTimer = undefined;
+      set({ houseSession: LIVE_HOUSE_SESSION });
+    }, ms);
+  },
+
+  beginHouseStopped: () => {
+    clearHouseCatchupTimer();
+    set({ houseSession: houseStoppedSession() });
+  },
 
   holdSync: (ms = 5000) => set({ syncHoldUntil: Date.now() + ms }),
 
@@ -338,8 +424,6 @@ export const useFleetStore = create<FleetState>((set, get) => ({
         () => api.setMute(deviceId, false),
         { muted: false, volume: restore },
       );
-      get().holdPlayback(deviceId, MUTE_HOLD_MS);
-      get().holdVolume(deviceId, MUTE_HOLD_MS);
       return;
     }
 
@@ -356,8 +440,6 @@ export const useFleetStore = create<FleetState>((set, get) => ({
       () => api.setMute(deviceId, true),
       { muted: true, volume: 0 },
     );
-    get().holdPlayback(deviceId, MUTE_HOLD_MS);
-    get().holdVolume(deviceId, MUTE_HOLD_MS);
   },
 
   fleetMuteAll: async (mute) => {
@@ -367,33 +449,25 @@ export const useFleetStore = create<FleetState>((set, get) => ({
     if (mute) {
       set((state) => {
         const lastAudibleVolume = { ...state.lastAudibleVolume };
-        const playbackHoldUntil = { ...state.playbackHoldUntil };
-        const volumeHoldUntil = { ...state.volumeHoldUntil };
         const until = Date.now() + MUTE_HOLD_MS;
+        const ids = state.devices.map((d) => d.id);
         for (const device of state.devices) {
           if (device.volume > 0) lastAudibleVolume[device.id] = device.volume;
-          playbackHoldUntil[device.id] = until;
-          volumeHoldUntil[device.id] = until;
         }
         return {
           lastAudibleVolume,
-          playbackHoldUntil,
-          volumeHoldUntil,
+          muteHoldUntil: stampHold(state.muteHoldUntil, ids, until),
+          volumeHoldUntil: stampHold(state.volumeHoldUntil, ids, until),
           devices: state.devices.map((d) => ({ ...d, muted: true, volume: 0 })),
         };
       });
     } else {
       set((state) => {
-        const playbackHoldUntil = { ...state.playbackHoldUntil };
-        const volumeHoldUntil = { ...state.volumeHoldUntil };
         const until = Date.now() + MUTE_HOLD_MS;
-        for (const device of state.devices) {
-          playbackHoldUntil[device.id] = until;
-          volumeHoldUntil[device.id] = until;
-        }
+        const ids = state.devices.map((d) => d.id);
         return {
-          playbackHoldUntil,
-          volumeHoldUntil,
+          muteHoldUntil: stampHold(state.muteHoldUntil, ids, until),
+          volumeHoldUntil: stampHold(state.volumeHoldUntil, ids, until),
           devices: state.devices.map((d) => ({
             ...d,
             muted: false,
@@ -453,14 +527,12 @@ export const useFleetStore = create<FleetState>((set, get) => ({
   },
 
   fleetStopAll: async () => {
+    get().beginHouseStopped();
     set((state) => {
-      const playbackHoldUntil = { ...state.playbackHoldUntil };
       const until = Date.now() + MUTE_HOLD_MS;
-      for (const device of state.devices) {
-        playbackHoldUntil[device.id] = until;
-      }
+      const ids = state.devices.map((d) => d.id);
       return {
-        playbackHoldUntil,
+        playbackHoldUntil: stampHold(state.playbackHoldUntil, ids, until),
         devices: state.devices.map((d) => ({ ...d, state: 'stop' })),
       };
     });
@@ -609,7 +681,13 @@ export const useFleetStore = create<FleetState>((set, get) => ({
   control: async (deviceId, action, optimistic) => {
     const previous = get().devices.find((d) => d.id === deviceId);
     const volumeOnly = isVolumeOnlyPatch(optimistic);
-    if (!volumeOnly) {
+    const mutePatch = isMutePatch(optimistic);
+    if (optimistic?.state === 'play' || optimistic?.state === 'stream') {
+      get().beginHouseCatchup(activeHouseIds(get().devices, [deviceId]));
+    }
+    if (mutePatch) {
+      get().holdMute(deviceId);
+    } else if (!volumeOnly) {
       get().holdPlayback(deviceId);
     }
     if (optimistic?.volume !== undefined) {
@@ -620,7 +698,9 @@ export const useFleetStore = create<FleetState>((set, get) => ({
     }
     try {
       await action();
-      if (!volumeOnly) {
+      if (mutePatch) {
+        get().holdMute(deviceId);
+      } else if (!volumeOnly) {
         get().holdPlayback(deviceId);
       }
       if (optimistic?.volume !== undefined) {

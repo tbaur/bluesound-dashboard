@@ -6,6 +6,7 @@ import {
   fleetHouseStatusLine,
   houseTransportTargets,
 } from '@/lib/fleetStatus';
+import { houseCatchupSession, houseStoppedSession } from '@/lib/houseSession';
 
 function player(
   partial: Partial<PlayerStatus> & Pick<PlayerStatus, 'id' | 'name'>,
@@ -251,7 +252,7 @@ describe('fleetHouseStatus', () => {
       primary: 'Joni — Moomin',
       detail: 'AirPlay',
       image: 'http://art/a.jpg',
-      leadId: null,
+      leadId: '1',
       meta: ['3 playing'],
     });
   });
@@ -526,7 +527,160 @@ describe('fleetHouseStatus', () => {
     expect(status.sources.map((s) => s.primary).sort()).toEqual(['Party — A', 'Quiet — B']);
   });
 
-  it('targets the sync primary for house transport, otherwise every member', () => {
+  it('keeps one house stream while AirPlay rooms are playing without titles yet', () => {
+    const status = fleetHouseStatus(
+      [
+        player({ id: '1', name: 'Hallway', state: 'connecting' }),
+        player({ id: '2', name: 'Kitchen', state: 'stream' }),
+        player({ id: '3', name: 'Patio', state: 'play' }),
+      ],
+      null,
+    );
+    expect(status.sourceCount).toBe(1);
+    expect(status.hasDominantStream).toBe(true);
+    expect(status.primary).toBe('Playing');
+    expect(status.rooms.sort()).toEqual(['Hallway', 'Kitchen', 'Patio']);
+  });
+
+  it('does not treat connecting-only rooms as a house stream', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'connecting',
+          track: 'unspoken',
+          artist: 'A',
+        }),
+        player({ id: '2', name: 'Kitchen', state: 'connecting' }),
+        player({ id: '3', name: 'Patio', state: 'stop' }),
+      ],
+      null,
+    );
+    expect(status.isIdle).toBe(true);
+    expect(status.sourceCount).toBe(0);
+    expect(status.primary).toBe('All quiet');
+  });
+
+  it('stays idle after stop even with leftover paused metadata', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'pause',
+          track: 'unspoken',
+          artist: 'A',
+        }),
+        player({ id: '2', name: 'Kitchen', state: 'connecting' }),
+      ],
+      null,
+      houseStoppedSession(),
+    );
+    expect(status.isIdle).toBe(true);
+    expect(status.primary).toBe('All quiet');
+  });
+
+  it('shows the house stream if stop failed and rooms are still playing', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'play',
+          track: 'unspoken',
+          artist: 'A',
+        }),
+      ],
+      null,
+      houseStoppedSession(),
+    );
+    expect(status.isIdle).toBe(false);
+    expect(status.primary).toBe('unspoken — A');
+  });
+
+  it('folds rooms still missing metadata into the titled house stream', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'play',
+          track: 'unspoken',
+          artist: 'A',
+          image: 'http://art/a.jpg',
+        }),
+        player({ id: '2', name: 'Kitchen', state: 'connecting' }),
+        player({ id: '3', name: 'Office', state: 'stream' }),
+      ],
+      null,
+    );
+    expect(status.sourceCount).toBe(1);
+    expect(status.primary).toBe('unspoken — A');
+    expect(status.rooms.sort()).toEqual(['Hallway', 'Kitchen', 'Office']);
+  });
+
+  it('keeps connecting rooms on the house stream even with leftover titles', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'play',
+          track: 'unspoken',
+          artist: 'A',
+          image: 'http://art/a.jpg',
+        }),
+        player({
+          id: '2',
+          name: 'Kitchen',
+          state: 'connecting',
+          track: 'old song',
+          artist: 'B',
+        }),
+        player({
+          id: '3',
+          name: 'Office',
+          state: 'connecting',
+          track: 'unspoken',
+          artist: 'A',
+        }),
+      ],
+      null,
+    );
+    expect(status.sourceCount).toBe(1);
+    expect(status.hasDominantStream).toBe(true);
+    expect(status.primary).toBe('unspoken — A');
+    expect(status.rooms.sort()).toEqual(['Hallway', 'Kitchen', 'Office']);
+  });
+
+  it('merges the same track when only some rooms have reported a service yet', () => {
+    const status = fleetHouseStatus(
+      [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'play',
+          service: 'AirPlay',
+          track: 'unspoken',
+          artist: 'A',
+        }),
+        player({
+          id: '2',
+          name: 'Kitchen',
+          state: 'stream',
+          track: 'unspoken',
+          artist: 'A',
+        }),
+      ],
+      null,
+    );
+    expect(status.sourceCount).toBe(1);
+    expect(status.primary).toBe('unspoken — A');
+    expect(status.detail).toBe('AirPlay');
+  });
+
+  it('targets the sync primary, or the stream lead for ungrouped rooms', () => {
     const grouped = [
       player({
         id: '1',
@@ -554,6 +708,90 @@ describe('fleetHouseStatus', () => {
       player({ id: '2', name: 'Hall', state: 'stream', track: 'Joni', artist: 'M' }),
     ];
     const parallelStatus = fleetHouseStatus(parallel, null);
-    expect(houseTransportTargets(parallelStatus.sources[0], parallel)).toEqual(['1', '2']);
+    expect(houseTransportTargets(parallelStatus.sources[0], parallel)).toEqual(['1']);
+  });
+
+  it('collapses a skip split back into one house stream', () => {
+    const devices = [
+      player({
+        id: '1',
+        name: 'Hallway',
+        state: 'play',
+        track: 'Next',
+        artist: 'B',
+        image: 'http://art/b.jpg',
+      }),
+      player({
+        id: '2',
+        name: 'Kitchen',
+        state: 'play',
+        track: 'Sapana',
+        artist: 'Artist',
+      }),
+    ];
+    const split = fleetHouseStatus(devices, null);
+    expect(split.sourceCount).toBe(2);
+    const held = fleetHouseStatus(devices, null, houseCatchupSession(['1', '2']));
+    expect(held.sourceCount).toBe(1);
+    expect(held.hasDominantStream).toBe(true);
+    expect(held.primary).toBe('Next — B');
+    expect(held.rooms.sort()).toEqual(['Hallway', 'Kitchen']);
+    expect(held.image).toBe('http://art/b.jpg');
+  });
+
+  it('keeps held rooms when some members stop during skip', () => {
+    const devices = [
+      player({
+        id: '1',
+        name: 'Hallway',
+        state: 'play',
+        track: 'Next',
+        artist: 'B',
+        image: 'http://art/b.jpg',
+      }),
+      player({ id: '2', name: 'Kitchen', state: 'stop' }),
+    ];
+    const status = fleetHouseStatus(devices, null);
+    expect(status.rooms).toEqual(['Hallway']);
+    const held = fleetHouseStatus(devices, null, houseCatchupSession(['1', '2']));
+    expect(held.rooms.sort()).toEqual(['Hallway', 'Kitchen']);
+    expect(held.sourceCount).toBe(1);
+  });
+
+  it('does not collapse when a new room is a real second source', () => {
+    const devices = [
+      player({
+        id: '1',
+        name: 'Hallway',
+        state: 'play',
+        track: 'Sapana',
+        artist: 'Artist',
+      }),
+      player({
+        id: '3',
+        name: 'Bedroom',
+        state: 'play',
+        track: 'Quiet',
+        artist: 'B',
+      }),
+    ];
+    const held = fleetHouseStatus(devices, null, houseCatchupSession(['1', '2']));
+    expect(held.sourceCount).toBe(2);
+    expect(held.hasDominantStream).toBe(false);
+  });
+
+  it('pins connecting rooms as one stream during play catchup', () => {
+    const status = fleetHouseStatus(
+      [
+        player({ id: '1', name: 'Hallway', state: 'connecting' }),
+        player({ id: '2', name: 'Kitchen', state: 'connecting' }),
+        player({ id: '3', name: 'Patio', state: 'play' }),
+      ],
+      null,
+      houseCatchupSession(['1', '2', '3']),
+    );
+    expect(status.sourceCount).toBe(1);
+    expect(status.hasDominantStream).toBe(true);
+    expect(status.rooms.sort()).toEqual(['Hallway', 'Kitchen', 'Patio']);
   });
 });

@@ -4,10 +4,10 @@ import { api } from '@/api/client';
 import type { PlayerStatus } from '@/api/types';
 import { SeekBar } from '@/components/SeekBar';
 import { StickyArt } from '@/components/StickyArt';
+import { useStableHouseStatus } from '@/hooks/useStableHouseStatus';
 import {
   fleetHasActivePlayback,
-  fleetHouseStatus,
-  fleetHouseStatusLine,
+  houseStatusLine,
   houseTransportTargets,
 } from '@/lib/fleetStatus';
 import { META_SEP } from '@/lib/meta';
@@ -128,8 +128,8 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
   const [busy, setBusy] = useState<string | null>(null);
   const [focusKey, setFocusKey] = useState<string | null>(null);
 
-  const status = fleetHouseStatus(devices, sync);
-  const statusTitle = fleetHouseStatusLine(devices, sync);
+  const status = useStableHouseStatus(devices, sync);
+  const statusTitle = houseStatusLine(status);
   const allMuted = devices.length > 0 && devices.every((d) => d.muted);
   const anyPlaying = fleetHasActivePlayback(devices);
   const mixed = status.sources.length > 1;
@@ -175,6 +175,9 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
   ) => {
     if (ids.length === 0) return;
     const members = focused?.memberIds ?? ids;
+    if (key === 'skip' || key === 'back') {
+      useFleetStore.getState().beginHouseCatchup(members);
+    }
     run(key, async () => {
       holdCluster(members);
       await Promise.all(ids.map((id) => control(id, () => fn(id), optimistic)));
@@ -198,9 +201,9 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
       const store = useFleetStore.getState();
       const focusedNow = focusedRef.current;
       const ids = focusedNow ? houseTransportTargets(focusedNow, store.devices) : [];
+      const members = focusedNow?.memberIds ?? ids;
       const send = (fn: (id: string) => Promise<void>, optimistic?: Partial<PlayerStatus>) => {
         if (ids.length === 0) return;
-        const members = focusedNow?.memberIds ?? ids;
         holdCluster(members);
         void Promise.all(ids.map((id) => store.control(id, () => fn(id), optimistic))).then(() => {
           paintCluster(
@@ -217,10 +220,12 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
       } else if (event.key === 'ArrowRight' || event.key === 'l') {
         if (ids.length === 0) return;
         event.preventDefault();
+        store.beginHouseCatchup(members);
         send((id) => api.skip(id));
       } else if (event.key === 'ArrowLeft' || event.key === 'j') {
         if (ids.length === 0) return;
         event.preventDefault();
+        store.beginHouseCatchup(members);
         send((id) => api.back(id));
       } else if (event.key === 'm' || event.key === 'M') {
         event.preventDefault();
@@ -241,7 +246,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
       aria-labelledby="fleet-actions-heading"
       data-idle={status.isIdle ? 'true' : 'false'}
       data-art={showNowPlaying ? 'true' : 'false'}
-      data-dominant={showNowPlaying ? 'true' : 'false'}
+      data-dominant={status.hasDominantStream ? 'true' : 'false'}
       data-paused={status.isPaused ? 'true' : 'false'}
     >
       <div className="house-remote-body">
@@ -333,7 +338,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
 
       {showNowPlaying && totlen > 0 ? (
         <SeekBar
-          key={lead?.id ?? focused?.key ?? ''}
+          key={lead?.id ?? 'house-seek'}
           initialSecs={secs}
           totlen={totlen}
           playing={streamPlaying && (lead?.state === 'play' || lead?.state === 'stream')}

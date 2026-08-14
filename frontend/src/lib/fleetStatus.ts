@@ -1,5 +1,10 @@
 import type { PlayerStatus, SyncState } from '@/api/types';
 import { deviceEndpoint, endpointsMatch } from '@/lib/endpoint';
+import {
+  isEstablishedPlayback,
+  LIVE_HOUSE_SESSION,
+  type HouseSession,
+} from '@/lib/houseSession';
 import { formatTrackArtist, joinMeta } from '@/lib/meta';
 import { streamQualityLabel } from '@/lib/streamQuality';
 
@@ -41,12 +46,12 @@ function nowPlayingLabel(focus: Cluster): { primary: string; detail: string } {
   };
 }
 
-/** Track + artist (+ service) identity; null when metadata is too thin to cluster. */
+/** Track + artist identity; null when metadata is too thin to cluster. */
 function streamKey(device: PlayerStatus): string | null {
   const track = device.track.trim().toLowerCase();
   const artist = device.artist.trim().toLowerCase();
   if (!track && !artist) return null;
-  return `${track}\n${artist}\n${serviceLabel(device).toLowerCase()}`;
+  return `${track}\n${artist}`;
 }
 
 type Cluster = {
@@ -79,9 +84,11 @@ function clusterStreamKey(cluster: Cluster): string | null {
 }
 
 function sourceKey(cluster: Cluster): string {
+  const ids = [...cluster.members.map((m) => m.id)].sort().join(',');
+  if (cluster.members.length > 1) return `members:${ids}`;
   const identity = clusterStreamKey(cluster);
   if (identity) return `stream:${identity.replaceAll('\n', '|')}`;
-  return `members:${[...cluster.members.map((m) => m.id)].sort().join(',')}`;
+  return `members:${ids}`;
 }
 
 function roomNamesOf(members: PlayerStatus[]): string[] {
@@ -159,17 +166,32 @@ function clustersFromCandidates(
   return clusters;
 }
 
-/** Merge clusters that share the same now-playing identity. */
-function mergeByStreamIdentity(clusters: Cluster[]): Cluster[] {
-  const keyed = new Map<string, Cluster[]>();
-  const unkeyed: Cluster[] = [];
+function isSettling(cluster: Cluster): boolean {
+  if (!clusterStreamKey(cluster)) return true;
+  return cluster.members.every((member) => member.state === 'connecting');
+}
 
+function attachMembers(host: Cluster, extra: Cluster[]): void {
+  host.members = [...host.members, ...extra.flatMap((cluster) => cluster.members)];
+  host.lead = pickLead([host.lead, ...extra.map((cluster) => cluster.lead)]);
+}
+
+/**
+ * Same track+artist is one stream. Untitled or still-connecting rooms join
+ * the largest titled stream, or form one "Playing" stream if nothing is titled.
+ */
+function mergeByStreamIdentity(clusters: Cluster[]): Cluster[] {
+  const settled: Cluster[] = [];
+  const settling: Cluster[] = [];
   for (const cluster of clusters) {
+    if (isSettling(cluster)) settling.push(cluster);
+    else settled.push(cluster);
+  }
+
+  const keyed = new Map<string, Cluster[]>();
+  for (const cluster of settled) {
     const key = clusterStreamKey(cluster);
-    if (!key) {
-      unkeyed.push(cluster);
-      continue;
-    }
+    if (!key) continue;
     const list = keyed.get(key) ?? [];
     list.push(cluster);
     keyed.set(key, list);
@@ -177,10 +199,23 @@ function mergeByStreamIdentity(clusters: Cluster[]): Cluster[] {
 
   const merged: Cluster[] = [];
   for (const list of keyed.values()) {
-    const members = list.flatMap((c) => c.members);
-    merged.push({ members, lead: pickLead(list.map((c) => c.lead)) });
+    const members = list.flatMap((cluster) => cluster.members);
+    merged.push({ members, lead: pickLead(list.map((cluster) => cluster.lead)) });
   }
-  merged.push(...unkeyed);
+
+  if (settling.length > 0) {
+    if (merged.length === 0) {
+      merged.push({
+        members: settling.flatMap((cluster) => cluster.members),
+        lead: pickLead(settling.map((cluster) => cluster.lead)),
+      });
+    } else {
+      const host = merged.reduce((a, b) =>
+        a.members.length >= b.members.length ? a : b,
+      );
+      attachMembers(host, settling);
+    }
+  }
 
   return merged.sort((a, b) => {
     if (b.members.length !== a.members.length) {
@@ -204,14 +239,13 @@ export type HouseStreamSource = {
 
 function clusterToSource(cluster: Cluster): HouseStreamSource {
   const { primary, detail } = nowPlayingLabel(cluster);
-  const hasSyncPrimary = cluster.members.some((d) => d.sync_role === 'primary');
   const album =
     cluster.lead.album.trim() ||
     cluster.members.find((m) => m.album.trim())?.album.trim() ||
     '';
   return {
     key: sourceKey(cluster),
-    leadId: cluster.members.length === 1 || hasSyncPrimary ? cluster.lead.id : null,
+    leadId: cluster.lead.id,
     primary,
     detail,
     image: resolveImage(cluster.lead, cluster.members),
@@ -261,81 +295,58 @@ function emptyHouseStatus(partial: Partial<FleetHouseStatus> = {}): FleetHouseSt
   };
 }
 
-function houseStreams(
-  devices: PlayerStatus[],
-  sync: SyncState | null,
-): HouseStreamSource[] {
-  const playing = devices.filter((d) => isPlaying(d.state));
-  const candidates =
-    playing.length > 0
-      ? playing
-      : devices.filter((d) => isPaused(d.state) && streamKey(d));
+function liveCandidates(devices: PlayerStatus[]): PlayerStatus[] {
+  const established = devices.filter((d) => isEstablishedPlayback(d.state));
+  if (established.length > 0) {
+    return devices.filter((d) => isEstablishedPlayback(d.state) || d.state === 'connecting');
+  }
+  return devices.filter((d) => isPaused(d.state) && streamKey(d));
+}
+
+function houseStreams(devices: PlayerStatus[], sync: SyncState | null): HouseStreamSource[] {
+  const candidates = liveCandidates(devices);
   return mergeByStreamIdentity(clustersFromCandidates(devices, sync, candidates)).map(
     clusterToSource,
   );
 }
 
-/** Devices the house remote should command for a focused stream. */
-export function houseTransportTargets(
-  source: HouseStreamSource,
-  devices: PlayerStatus[],
-): string[] {
-  const byId = new Map(devices.map((d) => [d.id, d]));
-  const members = source.memberIds
-    .map((id) => byId.get(id))
-    .filter((d): d is PlayerStatus => Boolean(d));
-  const primary = members.find((d) => d.sync_role === 'primary');
-  if (primary) return [primary.id];
-  return members.map((d) => d.id);
-}
-
-/** Structured house status for the fleet remote panel. */
-export function fleetHouseStatus(
+function houseMeta(
   devices: PlayerStatus[],
   sync: SyncState | null,
-): FleetHouseStatus {
-  if (devices.length === 0) {
-    return emptyHouseStatus({ primary: 'No players' });
-  }
-
-  const playing = devices.filter((d) => isPlaying(d.state));
-  const mutedCount = devices.filter((d) => d.muted).length;
-  const groupCount =
-    sync?.groups.length ??
-    devices.filter((d) => d.sync_role === 'primary').length;
-  const sources = houseStreams(devices, sync);
+  playingCount: number,
+  hasSources: boolean,
+): string[] {
   const meta: string[] = [];
+  if (playingCount > 1) meta.push(`${playingCount} playing`);
+  if (playingCount === 0 && hasSources) meta.push('Paused');
+  const groupCount =
+    sync?.groups.length ?? devices.filter((d) => d.sync_role === 'primary').length;
+  if (groupCount === 1) meta.push('Synced');
+  else if (groupCount > 0) meta.push(`${groupCount} groups`);
+  const mutedCount = devices.filter((d) => d.muted).length;
+  if (mutedCount > 0) meta.push(`${mutedCount} muted`);
+  return meta;
+}
 
-  if (playing.length > 1) {
-    meta.push(`${playing.length} playing`);
-  }
-  if (playing.length === 0 && sources.length > 0) {
-    meta.push('Paused');
-  }
-  if (groupCount === 1) {
-    meta.push('Synced');
-  } else if (groupCount > 0) {
-    meta.push(`${groupCount} groups`);
-  }
-  if (mutedCount > 0) {
-    meta.push(`${mutedCount} muted`);
-  }
+function finalizeHouseStatus(
+  devices: PlayerStatus[],
+  sync: SyncState | null,
+  sources: HouseStreamSource[],
+): FleetHouseStatus {
+  const playingCount = devices.filter((d) => isPlaying(d.state)).length;
+  const meta = houseMeta(devices, sync, playingCount, sources.length > 0);
+  if (sources.length === 0) return emptyHouseStatus({ meta });
 
-  if (sources.length === 0) {
-    return emptyHouseStatus({ meta });
-  }
-
-  const sourceCount = sources.length;
-  const isPausedHouse = playing.length === 0;
-  if (sourceCount > 1) {
+  const isPausedHouse = playingCount === 0;
+  if (sources.length > 1) {
     return emptyHouseStatus({
-      primary: `${sourceCount} sources`,
+      primary: `${sources.length} sources`,
       detail: isPausedHouse ? 'Mixed paused rooms' : 'Mixed playback across the house',
       meta,
       isIdle: false,
       isPaused: isPausedHouse,
       hasDominantStream: false,
-      sourceCount,
+      sourceCount: sources.length,
       sources,
     });
   }
@@ -357,15 +368,120 @@ export function fleetHouseStatus(
   };
 }
 
-/** Flat string for titles/tooltips. */
-export function fleetHouseStatusLine(
+function sessionKeys(members: PlayerStatus[]): Set<string> {
+  const keys = new Set<string>();
+  for (const member of members) {
+    const key = streamKey(member);
+    if (key) keys.add(key);
+  }
+  return keys;
+}
+
+function hasForeignSource(
+  devices: PlayerStatus[],
+  sessionIds: Set<string>,
+  keys: Set<string>,
+): boolean {
+  if (keys.size === 0) return false;
+  return devices.some((device) => {
+    if (sessionIds.has(device.id) || !isEstablishedPlayback(device.state)) return false;
+    const key = streamKey(device);
+    return Boolean(key && !keys.has(key));
+  });
+}
+
+function catchupMembers(
+  devices: PlayerStatus[],
+  pinned: PlayerStatus[],
+  sessionIds: Set<string>,
+  keys: Set<string>,
+): PlayerStatus[] {
+  const extra = devices.filter((device) => {
+    if (sessionIds.has(device.id)) return false;
+    if (device.state === 'connecting') return true;
+    if (!isEstablishedPlayback(device.state) && !isPaused(device.state)) return false;
+    const key = streamKey(device);
+    return !key || keys.size === 0 || keys.has(key);
+  });
+  return [...pinned, ...extra];
+}
+
+/** Pin rooms as one stream while skip/play catch up. A new titled outsider stays mixed. */
+function applyCatchup(
+  live: FleetHouseStatus,
   devices: PlayerStatus[],
   sync: SyncState | null,
-): string {
-  const status = fleetHouseStatus(devices, sync);
+  memberIds: readonly string[],
+): FleetHouseStatus {
+  if (memberIds.length === 0) return live;
+  const sessionIds = new Set(memberIds);
+  const byId = new Map(devices.map((device) => [device.id, device]));
+  const pinned = memberIds
+    .map((id) => byId.get(id))
+    .filter((device): device is PlayerStatus => Boolean(device));
+  if (pinned.length === 0) return live;
+
+  const keys = sessionKeys(pinned);
+  if (hasForeignSource(devices, sessionIds, keys)) return live;
+
+  const members = catchupMembers(devices, pinned, sessionIds, keys);
+  return finalizeHouseStatus(devices, sync, [
+    clusterToSource({ members, lead: pickLead(members) }),
+  ]);
+}
+
+/** Command the sync primary, or the stream lead — never every AirPlay room. */
+export function houseTransportTargets(
+  source: HouseStreamSource,
+  devices: PlayerStatus[],
+): string[] {
+  const byId = new Map(devices.map((d) => [d.id, d]));
+  const members = source.memberIds
+    .map((id) => byId.get(id))
+    .filter((d): d is PlayerStatus => Boolean(d));
+  const primary = members.find((d) => d.sync_role === 'primary');
+  if (primary) return [primary.id];
+  if (source.leadId && byId.has(source.leadId)) return [source.leadId];
+  return members[0] ? [members[0].id] : [];
+}
+
+/** Structured house status for the fleet remote panel. */
+export function fleetHouseStatus(
+  devices: PlayerStatus[],
+  sync: SyncState | null,
+  session: HouseSession = LIVE_HOUSE_SESSION,
+): FleetHouseStatus {
+  if (devices.length === 0) {
+    return emptyHouseStatus({ primary: 'No players' });
+  }
+
+  const stopped =
+    session.phase === 'stopped' &&
+    !devices.some((device) => isEstablishedPlayback(device.state));
+  if (stopped) {
+    return emptyHouseStatus({ meta: houseMeta(devices, sync, 0, false) });
+  }
+
+  const live = finalizeHouseStatus(devices, sync, houseStreams(devices, sync));
+  if (session.phase === 'catchup') {
+    return applyCatchup(live, devices, sync, session.memberIds);
+  }
+  return live;
+}
+
+/** Flat string for titles/tooltips. */
+export function houseStatusLine(status: FleetHouseStatus): string {
   const parts = [status.primary, ...status.meta];
   if (status.detail) parts.splice(1, 0, status.detail);
   return joinMeta(...parts);
+}
+
+export function fleetHouseStatusLine(
+  devices: PlayerStatus[],
+  sync: SyncState | null,
+  session: HouseSession = LIVE_HOUSE_SESSION,
+): string {
+  return houseStatusLine(fleetHouseStatus(devices, sync, session));
 }
 
 export function fleetHasActivePlayback(devices: PlayerStatus[]): boolean {

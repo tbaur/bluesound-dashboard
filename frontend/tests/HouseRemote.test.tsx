@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HouseRemote } from '@/components/HouseRemote';
 import type { PlayerStatus, SyncState } from '@/api/types';
+import { houseStoppedSession, LIVE_HOUSE_SESSION } from '@/lib/houseSession';
 import { useFleetStore } from '@/store/fleetStore';
 
 const toggle = vi.fn();
@@ -125,6 +126,9 @@ describe('HouseRemote', () => {
         }),
       ],
       sync: grouped,
+      playbackHoldUntil: {},
+      muteHoldUntil: {},
+      houseSession: LIVE_HOUSE_SESSION,
       fleetMuteAll: vi.fn().mockResolvedValue(undefined),
       fleetPauseAll: vi.fn().mockResolvedValue(undefined),
       fleetStopAll: vi.fn().mockResolvedValue(undefined),
@@ -133,6 +137,7 @@ describe('HouseRemote', () => {
         await action();
       }),
     });
+    useFleetStore.getState().beginHouseCatchup([]);
   });
 
   it('drives skip, pause, and shuffle on the sync primary', async () => {
@@ -187,6 +192,98 @@ describe('HouseRemote', () => {
     fireEvent.keyDown(field, { key: 'ArrowRight' });
     expect(skip).toHaveBeenCalledTimes(1);
     field.remove();
+  });
+
+  it('does not flash source tabs when skip splits a merged house stream', async () => {
+    useFleetStore.setState({
+      devices: [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'play',
+          track: 'Sapana',
+          artist: 'Artist',
+          album: 'Night',
+          image: 'http://art/a.jpg',
+          secs: 30,
+          totlen: 240,
+          can_seek: true,
+        }),
+        player({
+          id: '2',
+          name: 'Kitchen',
+          state: 'play',
+          track: 'Sapana',
+          artist: 'Artist',
+        }),
+      ],
+      sync: { groups: [], standalone_ids: ['1', '2'] },
+      playbackHoldUntil: {},
+    });
+    renderRemote();
+    fireEvent.click(screen.getByRole('button', { name: 'Next track' }));
+    await waitFor(() => expect(skip).toHaveBeenCalledWith('1'));
+    expect(skip).toHaveBeenCalledTimes(1);
+    act(() => {
+      useFleetStore.setState({
+        devices: [
+          player({
+            id: '1',
+            name: 'Hallway',
+            state: 'play',
+            track: 'Next',
+            artist: 'B',
+            album: 'Night',
+            image: 'http://art/b.jpg',
+            secs: 1,
+            totlen: 180,
+            can_seek: true,
+          }),
+          player({
+            id: '2',
+            name: 'Kitchen',
+            state: 'play',
+            track: 'Sapana',
+            artist: 'Artist',
+          }),
+        ],
+        playbackHoldUntil: {},
+      });
+    });
+
+    expect(screen.getByText('Hallway')).toBeInTheDocument();
+    expect(screen.getByText('Kitchen')).toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'House sources' })).not.toBeInTheDocument();
+    expect(screen.getByText('Next — B')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pause all' })).not.toBeInTheDocument();
+    expect(screen.getByRole('slider', { name: 'Seek' })).toBeInTheDocument();
+  });
+
+  it('goes idle after stop even if AirPlay rooms report connecting', () => {
+    useFleetStore.setState({
+      houseSession: houseStoppedSession(),
+      devices: [
+        player({
+          id: '1',
+          name: 'Hallway',
+          state: 'connecting',
+          track: 'Sapana',
+          artist: 'Artist',
+        }),
+        player({
+          id: '2',
+          name: 'Kitchen',
+          state: 'connecting',
+          track: 'Sapana',
+          artist: 'Artist',
+        }),
+      ],
+      sync: { groups: [], standalone_ids: ['1', '2'] },
+    });
+    renderRemote();
+    expect(screen.getByText('All quiet')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Pause house stream' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('tablist', { name: 'House sources' })).not.toBeInTheDocument();
   });
 
   it('cycles repeat off → all → one', async () => {
