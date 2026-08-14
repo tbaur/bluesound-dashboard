@@ -20,7 +20,7 @@ Related CLI: [bluos-controller](https://github.com/tbaur/bluos-controller). This
 - **Per player** — queue, inputs, presets, Bluetooth, audio/player settings, diagnostics (including uptime), 12-hour presence, reboot.
 - **House page** — same remote, poller drop history (this process), firmware inventory + upgrade check, reboot all, ungroup all.
 - **Discovery** — on load, on rescan, and automatic re-scan when the fleet is empty. mDNS browses `_musc` and `_musp` (CI secondary zones as `ip:port`).
-- **Live updates** — server poller + SSE, with REST fallback if the stream drops.
+- **Live updates** — BluOS etag long-poll (Status holds until skip/volume/track/group change) plus SSE, with REST fallback if the stream drops.
 
 Ops (health, logs, LAN bind): [docs/RUNBOOK.md](docs/RUNBOOK.md).
 

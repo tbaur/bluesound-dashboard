@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import time
+from dataclasses import dataclass
 from typing import Any
+from urllib.parse import urlencode
+
+import httpx
 
 from app.bluos.transport import BluOSTransport
 from app.bluos.xml import attr, safe_parse_xml, text
@@ -16,6 +20,15 @@ from app.validators import (
     normalize_bluos_mac,
     parse_bluos_endpoint,
 )
+
+
+@dataclass(frozen=True)
+class PlayerSnapshot:
+    """Player view plus opaque BluOS etags used for Status long-poll."""
+
+    player: PlayerStatus
+    status_etag: str = ""
+    sync_stat: str = ""
 
 
 class BluOSStatusMixin(BluOSTransport):
@@ -81,6 +94,8 @@ class BluOSStatusMixin(BluOSTransport):
             "battery": battery,
             "volume": volume,
             "muted": muted,
+            "etag": attr(root, "etag"),
+            "sync_stat": attr(root, "syncStat") or text(root, "syncStat"),
         }
 
     def _absolute_media_url(self, ip: str, path: str, *, port: int | None = None) -> str:
@@ -154,91 +169,73 @@ class BluOSStatusMixin(BluOSTransport):
             "group_name": text(root, "groupName"),
             "group_volume": group_volume,
             "db": text(root, "db"),
+            "etag": attr(root, "etag"),
+            "sync_stat": text(root, "syncStat") or attr(root, "syncStat"),
         }
 
-    async def get_player_status(
+    def _apply_sync_fields(
         self,
-        target: str,
+        player: PlayerStatus,
+        sync: dict[str, Any],
         *,
-        device_id: str | None = None,
-        node_id: str = "",
-    ) -> PlayerStatus:
-        resolved = self._resolve_target(target)
-        if not resolved:
-            return PlayerStatus(id="invalid", ip=target or "", status="invalid")
-        sanitized, port = resolved
-        endpoint = format_endpoint(sanitized, port)
+        endpoint: str,
+        sanitized: str,
+        node_id: str,
+        port: int,
+        device_id: str | None,
+    ) -> None:
+        player.name = sync["name"]
+        player.model = sync["model"]
+        player.brand = sync["brand"]
+        player.device_class = sync.get("device_class", "")
+        player.mac = sync.get("mac", "")
+        player.db = sync["db"]
+        player.fw = sync["fw"]
+        player.master = sync["master"]
+        player.group = sync["group"]
+        player.slaves = sync["slaves"]
+        player.battery = sync["battery"]
+        player.sync_role = self.parse_sync_role(player.master, player.slaves, endpoint)
+        if sync.get("volume") is not None:
+            player.volume = sync["volume"]
+        if sync.get("muted") is not None:
+            player.muted = sync["muted"]
+        if not device_id:
+            player.id = make_device_id(sanitized, player.name, node_id, port=port)
 
-        sync_xml, status_xml = await asyncio.gather(
-            self._get(endpoint, "/SyncStatus"),
-            self._get(endpoint, "/Status"),
-        )
-        player = PlayerStatus(
-            id=device_id or make_device_id(sanitized, node_id=node_id, port=port),
-            ip=sanitized,
-            port=port,
-        )
-        if not sync_xml and not status_xml:
-            player.status = "offline"
-            return player
+    def _apply_status_fields(
+        self,
+        player: PlayerStatus,
+        status: dict[str, Any],
+        *,
+        overlay_volume: bool,
+    ) -> None:
+        if overlay_volume:
+            player.volume = status.get("volume", player.volume)
+            player.muted = status.get("muted", player.muted)
+        player.state = status.get("state", "stop")
+        player.service = status.get("service", "")
+        player.service_id = status.get("service_id", "")
+        player.track = status.get("track", "")
+        player.artist = status.get("artist", "")
+        player.album = status.get("album", "")
+        player.quality = status.get("quality", "")
+        player.stream_format = status.get("stream_format", "")
+        player.image = status.get("image", "")
+        player.secs = status.get("secs", 0)
+        player.totlen = status.get("totlen", 0)
+        player.can_seek = status.get("can_seek", False)
+        player.shuffle = status.get("shuffle", 0)
+        player.repeat = status.get("repeat", 0)
+        player.input_type_index = status.get("input_type_index", "")
+        if status.get("group_name") and not player.group:
+            player.group = status["group_name"]
+        if status.get("group_volume") is not None:
+            player.group_volume = status["group_volume"]
+        if status.get("db"):
+            player.db = status["db"]
 
-        sync: dict[str, Any] = {}
-        if sync_xml:
-            sync = self._parse_sync(sync_xml, endpoint)
-            if not sync:
-                player.status = "xml_error"
-                return player
-            player.name = sync["name"]
-            player.model = sync["model"]
-            player.brand = sync["brand"]
-            player.device_class = sync.get("device_class", "")
-            player.mac = sync.get("mac", "")
-            player.db = sync["db"]
-            player.fw = sync["fw"]
-            player.master = sync["master"]
-            player.group = sync["group"]
-            player.slaves = sync["slaves"]
-            player.battery = sync["battery"]
-            player.sync_role = self.parse_sync_role(player.master, player.slaves, endpoint)
-            if sync.get("volume") is not None:
-                player.volume = sync["volume"]
-            if sync.get("muted") is not None:
-                player.muted = sync["muted"]
-            if not device_id:
-                player.id = make_device_id(sanitized, player.name, node_id, port=port)
-
-        if status_xml:
-            status = self._parse_status(status_xml, sanitized, port=port)
-            if not status and player.status == "offline":
-                player.status = "xml_error"
-                return player
-            # Prefer SyncStatus volume/mute — /Status reports group volume on secondaries.
-            if sync.get("volume") is None:
-                player.volume = status.get("volume", player.volume)
-            if sync.get("muted") is None:
-                player.muted = status.get("muted", player.muted)
-            player.state = status.get("state", "stop")
-            player.service = status.get("service", "")
-            player.service_id = status.get("service_id", "")
-            player.track = status.get("track", "")
-            player.artist = status.get("artist", "")
-            player.album = status.get("album", "")
-            player.quality = status.get("quality", "")
-            player.stream_format = status.get("stream_format", "")
-            player.image = status.get("image", "")
-            player.secs = status.get("secs", 0)
-            player.totlen = status.get("totlen", 0)
-            player.can_seek = status.get("can_seek", False)
-            player.shuffle = status.get("shuffle", 0)
-            player.repeat = status.get("repeat", 0)
-            player.input_type_index = status.get("input_type_index", "")
-            if status.get("group_name") and not player.group:
-                player.group = status["group_name"]
-            if status.get("group_volume") is not None:
-                player.group_volume = status["group_volume"]
-            if status.get("db"):
-                player.db = status["db"]
-
+    def _finalize_player(self, player: PlayerStatus) -> None:
         if player.brand and player.brand not in player.model:
             player.full_model = f"{player.brand} {player.model}".strip()
         else:
@@ -251,5 +248,184 @@ class BluOSStatusMixin(BluOSTransport):
         )
         player.status = "online"
         player.last_seen = time.time()
-        return player
 
+    def _shell_player(
+        self,
+        sanitized: str,
+        port: int,
+        device_id: str | None,
+        node_id: str,
+    ) -> PlayerStatus:
+        return PlayerStatus(
+            id=device_id or make_device_id(sanitized, node_id=node_id, port=port),
+            ip=sanitized,
+            port=port,
+        )
+
+    @staticmethod
+    def _tags_from_parsed(status: dict[str, Any], sync: dict[str, Any]) -> tuple[str, str]:
+        etag = str(status.get("etag") or "")
+        sync_stat = str(status.get("sync_stat") or sync.get("sync_stat") or "")
+        return etag, sync_stat
+
+    async def _fetch_status_xml(self, endpoint: str, *, etag: str, wait: float) -> bytes | None:
+        query = urlencode({"timeout": str(int(wait)), "etag": etag})
+        connect = self.settings.device_http_timeout
+        timeout = httpx.Timeout(
+            connect=connect,
+            read=wait + self.settings.long_poll_read_slack_seconds,
+            write=connect,
+            pool=connect,
+        )
+        return await self._get(
+            endpoint,
+            "/Status",
+            query=query,
+            retries=1,
+            timeout=timeout,
+            hold_slot=False,
+        )
+
+    def _snapshot_from_xml(
+        self,
+        *,
+        sanitized: str,
+        port: int,
+        device_id: str | None,
+        node_id: str,
+        endpoint: str,
+        sync_xml: bytes | None,
+        status_xml: bytes | None,
+        previous: PlayerStatus | None = None,
+        reuse_sync: bool = False,
+    ) -> PlayerSnapshot:
+        player = (
+            previous.model_copy(deep=True)
+            if reuse_sync and previous is not None
+            else self._shell_player(sanitized, port, device_id, node_id)
+        )
+        if not sync_xml and not status_xml and not reuse_sync:
+            player.status = "offline"
+            return PlayerSnapshot(player)
+
+        sync: dict[str, Any] = {}
+        if sync_xml and not reuse_sync:
+            sync = self._parse_sync(sync_xml, endpoint)
+            if not sync:
+                player.status = "xml_error"
+                return PlayerSnapshot(player)
+            self._apply_sync_fields(
+                player,
+                sync,
+                endpoint=endpoint,
+                sanitized=sanitized,
+                node_id=node_id,
+                port=port,
+                device_id=device_id,
+            )
+
+        status: dict[str, Any] = {}
+        if status_xml:
+            status = self._parse_status(status_xml, sanitized, port=port)
+            if not status and player.status == "offline":
+                player.status = "xml_error"
+                return PlayerSnapshot(player)
+            if status:
+                overlay = sync.get("volume") is None
+                if reuse_sync and previous is not None:
+                    overlay = previous.sync_role != SyncRole.SYNCED
+                self._apply_status_fields(player, status, overlay_volume=overlay)
+
+        self._finalize_player(player)
+        etag, sync_stat = self._tags_from_parsed(status, sync)
+        return PlayerSnapshot(player, status_etag=etag, sync_stat=sync_stat)
+
+    async def load_player(
+        self,
+        target: str,
+        *,
+        device_id: str | None = None,
+        node_id: str = "",
+        status_etag: str | None = None,
+        sync_stat: str | None = None,
+        previous: PlayerStatus | None = None,
+        long_poll_seconds: float | None = None,
+    ) -> PlayerSnapshot:
+        resolved = self._resolve_target(target)
+        if not resolved:
+            invalid = PlayerStatus(id="invalid", ip=target or "", status="invalid")
+            return PlayerSnapshot(invalid)
+        sanitized, port = resolved
+        endpoint = format_endpoint(sanitized, port)
+        if long_poll_seconds is not None and status_etag:
+            return await self._load_long_poll(
+                endpoint,
+                sanitized,
+                port,
+                device_id,
+                node_id,
+                status_etag=status_etag,
+                sync_stat=sync_stat,
+                previous=previous,
+                wait=long_poll_seconds,
+            )
+        sync_xml, status_xml = await asyncio.gather(
+            self._get(endpoint, "/SyncStatus"),
+            self._get(endpoint, "/Status"),
+        )
+        return self._snapshot_from_xml(
+            sanitized=sanitized,
+            port=port,
+            device_id=device_id,
+            node_id=node_id,
+            endpoint=endpoint,
+            sync_xml=sync_xml,
+            status_xml=status_xml,
+        )
+
+    async def _load_long_poll(
+        self,
+        endpoint: str,
+        sanitized: str,
+        port: int,
+        device_id: str | None,
+        node_id: str,
+        *,
+        status_etag: str,
+        sync_stat: str | None,
+        previous: PlayerStatus | None,
+        wait: float,
+    ) -> PlayerSnapshot:
+        status_xml = await self._fetch_status_xml(endpoint, etag=status_etag, wait=wait)
+        if not status_xml:
+            player = self._shell_player(sanitized, port, device_id, node_id)
+            player.status = "offline"
+            return PlayerSnapshot(player)
+        status = self._parse_status(status_xml, sanitized, port=port)
+        if not status:
+            player = self._shell_player(sanitized, port, device_id, node_id)
+            player.status = "xml_error"
+            return PlayerSnapshot(player)
+        new_sync = str(status.get("sync_stat") or "")
+        reuse = previous is not None and bool(new_sync) and new_sync == (sync_stat or "")
+        sync_xml = None if reuse else await self._get(endpoint, "/SyncStatus")
+        return self._snapshot_from_xml(
+            sanitized=sanitized,
+            port=port,
+            device_id=device_id,
+            node_id=node_id,
+            endpoint=endpoint,
+            sync_xml=sync_xml,
+            status_xml=status_xml,
+            previous=previous,
+            reuse_sync=reuse,
+        )
+
+    async def get_player_status(
+        self,
+        target: str,
+        *,
+        device_id: str | None = None,
+        node_id: str = "",
+    ) -> PlayerStatus:
+        return (await self.load_player(target, device_id=device_id, node_id=node_id)).player

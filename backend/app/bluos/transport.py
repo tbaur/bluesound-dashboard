@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from urllib.parse import urljoin, urlparse
 
 import httpx
@@ -24,9 +26,12 @@ class BluOSTransport:
         self._owns_client = client is None
         # Manual redirects so each Location host is re-validated (BluOS may
         # 301 /Settings from :11000 -> :11001 on the same device IP).
+        # Keepalive room for per-player Status long-polls plus control calls.
+        pool = max(48, settings.max_concurrent_device_calls + 24)
         self._client = client or httpx.AsyncClient(
             timeout=settings.device_http_timeout,
             follow_redirects=False,
+            limits=httpx.Limits(max_connections=pool + 16, max_keepalive_connections=pool),
         )
         self._rate = RateLimiter(settings.control_rate_limit_seconds)
         self._sem = asyncio.Semaphore(settings.max_concurrent_device_calls)
@@ -76,12 +81,20 @@ class BluOSTransport:
             return None
         return next_url
 
+    @asynccontextmanager
+    async def _call_slot(self, hold_slot: bool) -> AsyncIterator[None]:
+        if hold_slot:
+            async with self._sem:
+                yield
+            return
+        yield
+
     async def _follow_get(
         self,
         origin_ip: str,
         url: str,
         *,
-        timeout: float | None = None,
+        timeout: float | httpx.Timeout | None = None,
     ) -> httpx.Response | None:
         current = url
         for _ in range(_MAX_REDIRECTS + 1):
@@ -137,6 +150,8 @@ class BluOSTransport:
         query: str = "",
         retries: int = 3,
         control: bool = False,
+        timeout: float | httpx.Timeout | None = None,
+        hold_slot: bool = True,
     ) -> bytes | None:
         resolved = self._resolve_target(target)
         if not resolved:
@@ -152,8 +167,8 @@ class BluOSTransport:
         last_error: Exception | None = None
         for attempt in range(retries if not control else 1):
             try:
-                async with self._sem:
-                    response = await self._follow_get(sanitized, url)
+                async with self._call_slot(hold_slot):
+                    response = await self._follow_get(sanitized, url, timeout=timeout)
                 if response is None:
                     return None
                 if response.status_code >= 400:
