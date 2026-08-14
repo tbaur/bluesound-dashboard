@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.10.0](https://github.com/tbaur/bluos-dashboard/compare/v0.9.1...v0.10.0) (2026-08-14)
+
+
+### Features
+
+* house health history and skip without flicker ([#60](https://github.com/tbaur/bluos-dashboard/issues/60)) ([ffe3f03](https://github.com/tbaur/bluos-dashboard/commit/ffe3f0320b62460ea8af8a548c807f087e3a4720))
+* long-poll BluOS Status with etag instead of 3s bursts ([#62](https://github.com/tbaur/bluos-dashboard/issues/62)) ([2f6ba3e](https://github.com/tbaur/bluos-dashboard/commit/2f6ba3e326af791a6c7af505de671ce4c9672af6))
+
 ## [0.9.1](https://github.com/tbaur/bluos-dashboard/compare/v0.9.0...v0.9.1) (2026-08-14)
 
 
