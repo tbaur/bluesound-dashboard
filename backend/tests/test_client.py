@@ -507,7 +507,10 @@ async def test_settings_and_upgrade_web_ui(settings: Settings) -> None:
         assert player is not None
         assert all(s.id != "wifi" for s in player.settings)
         assert any(s.id == "ledbrightness" for s in player.settings)
-        assert any(s.id == "amplifierStandby" and s.control_path == "/setting" for s in player.settings)
+        assert any(
+            s.id == "amplifierStandby" and s.control_path == "/setting"
+            for s in player.settings
+        )
 
         assert await client.set_device_setting("192.168.1.20", "eq-treble", "3") is True
         assert (
