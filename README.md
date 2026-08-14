@@ -9,7 +9,7 @@ LAN dashboard for every BluOS player on your network — Nodes, Pulse, NAD CI zo
 
 Related CLI: [bluos-controller](https://github.com/tbaur/bluos-controller). This dashboard is self-contained (no runtime dependency on the CLI).
 
-![House remote with now playing, room chips, and the live player list](docs/images/fleet.png)
+![House remote with now playing, room chips, and the live player list](docs/images/house.png)
 
 ## Features
 
