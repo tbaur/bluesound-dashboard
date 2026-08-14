@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router';
 import { api } from '@/api/client';
 import type { PlayerStatus } from '@/api/types';
 import { SeekBar } from '@/components/SeekBar';
+import { StickyArt } from '@/components/StickyArt';
 import {
   fleetHasActivePlayback,
   fleetHouseStatus,
@@ -82,6 +83,13 @@ function nextRepeat(current: number): 0 | 1 | 2 {
   if (current === 0) return 1;
   if (current === 1) return 2;
   return 0;
+}
+
+function holdCluster(memberIds: string[]) {
+  const store = useFleetStore.getState();
+  for (const id of memberIds) {
+    store.holdPlayback(id);
+  }
 }
 
 function paintCluster(memberIds: string[], optimistic?: Partial<PlayerStatus>) {
@@ -168,6 +176,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
     if (ids.length === 0) return;
     const members = focused?.memberIds ?? ids;
     run(key, async () => {
+      holdCluster(members);
       await Promise.all(ids.map((id) => control(id, () => fn(id), optimistic)));
       paintCluster(
         members.filter((id) => !ids.includes(id)),
@@ -192,6 +201,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
       const send = (fn: (id: string) => Promise<void>, optimistic?: Partial<PlayerStatus>) => {
         if (ids.length === 0) return;
         const members = focusedNow?.memberIds ?? ids;
+        holdCluster(members);
         void Promise.all(ids.map((id) => store.control(id, () => fn(id), optimistic))).then(() => {
           paintCluster(
             members.filter((id) => !ids.includes(id)),
@@ -245,18 +255,15 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
                 : `Open ${focused?.primary ?? 'player'}`
             }
           >
-            {focused?.image ? (
-              <img
-                key={focused.image}
-                src={focused.image}
-                alt=""
-                className="house-remote-art-img"
-              />
-            ) : (
-              <span className="house-remote-art-empty" aria-hidden="true">
-                <span className="house-remote-art-glyph" />
-              </span>
-            )}
+            <StickyArt
+              src={focused?.image ?? ''}
+              className="house-remote-art-img"
+              empty={
+                <span className="house-remote-art-empty" aria-hidden="true">
+                  <span className="house-remote-art-glyph" />
+                </span>
+              }
+            />
           </Link>
         ) : null}
         <div className="house-remote-head">
@@ -326,7 +333,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
 
       {showNowPlaying && totlen > 0 ? (
         <SeekBar
-          key={`${lead?.id ?? focused?.key ?? ''}|${focused?.primary ?? ''}|${totlen}`}
+          key={lead?.id ?? focused?.key ?? ''}
           initialSecs={secs}
           totlen={totlen}
           playing={streamPlaying && (lead?.state === 'play' || lead?.state === 'stream')}
@@ -351,7 +358,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
             <button
               type="button"
               className="house-icon-btn"
-              disabled={busy !== null || targets.length === 0}
+              disabled={targets.length === 0}
               aria-label="Previous track"
               onClick={() => commandTargets('back', (id) => api.back(id))}
             >
@@ -360,7 +367,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
             <button
               type="button"
               className="house-icon-btn house-icon-btn-play"
-              disabled={busy !== null || targets.length === 0}
+              disabled={targets.length === 0}
               aria-label={playLabel}
               onClick={toggleStream}
             >
@@ -369,7 +376,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
             <button
               type="button"
               className="house-icon-btn"
-              disabled={busy !== null || targets.length === 0}
+              disabled={targets.length === 0}
               aria-label="Next track"
               onClick={() => commandTargets('skip', (id) => api.skip(id))}
             >
@@ -378,7 +385,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
             <button
               type="button"
               className="house-icon-btn house-icon-btn-mode"
-              disabled={busy !== null || targets.length === 0}
+              disabled={targets.length === 0}
               aria-label={shuffleOn ? 'Shuffle on' : 'Shuffle off'}
               aria-pressed={shuffleOn}
               onClick={() =>
@@ -394,7 +401,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
             <button
               type="button"
               className="house-icon-btn house-icon-btn-mode"
-              disabled={busy !== null || targets.length === 0}
+              disabled={targets.length === 0}
               aria-label={repeatLabel}
               aria-pressed={repeatMode !== 0}
               onClick={() => {
@@ -411,7 +418,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
           <button
             type="button"
             className="btn"
-            disabled={busy !== null}
+            disabled={busy === 'mute'}
             onClick={() => run('mute', () => fleetMuteAll(!allMuted))}
           >
             {busy === 'mute' ? '…' : allMuted ? 'Unmute' : 'Mute'}
@@ -420,7 +427,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
             <button
               type="button"
               className="btn"
-              disabled={busy !== null || !anyPlaying}
+              disabled={busy === 'pause' || !anyPlaying}
               title={anyPlaying ? 'Pause every playing room' : 'Nothing playing'}
               onClick={() => run('pause', () => fleetPauseAll())}
             >
@@ -430,7 +437,7 @@ export function HouseRemote({ variant = 'fleet' }: HouseRemoteProps) {
           <button
             type="button"
             className="btn btn-danger"
-            disabled={busy !== null}
+            disabled={busy === 'stop'}
             title="Stop playback on every player"
             onClick={() => run('stop', () => fleetStopAll())}
           >

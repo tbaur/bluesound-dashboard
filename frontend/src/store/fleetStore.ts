@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { api } from '@/api/client';
-import type { PlayerStatus, SyncState } from '@/api/types';
+import type { FleetHealthResponse, PlayerStatus, SyncState } from '@/api/types';
 import { ApiError } from '@/api/types';
 
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'offline';
@@ -14,6 +14,7 @@ interface FleetState {
   discoveredAt: number | null;
   discoveryMethod: string;
   sync: SyncState | null;
+  health: FleetHealthResponse | null;
   connection: ConnectionState;
   loading: boolean;
   refreshing: boolean;
@@ -45,6 +46,7 @@ interface FleetState {
   holdSync: (ms?: number) => void;
   setConnection: (connection: ConnectionState) => void;
   setSync: (sync: SyncState | null) => void;
+  setHealth: (health: FleetHealthResponse | null) => void;
   setToast: (toast: string | null) => void;
   setAllVolumesLocal: (level: number) => void;
   setVolumesLocal: (level: number, deviceIds: string[]) => void;
@@ -59,6 +61,51 @@ interface FleetState {
     action: () => Promise<void>,
     optimistic?: Partial<PlayerStatus>,
   ) => Promise<void>;
+}
+
+function hasTrackMeta(device: PlayerStatus): boolean {
+  return Boolean(device.track.trim() || device.artist.trim());
+}
+
+function isSameTrack(left: PlayerStatus, right: PlayerStatus): boolean {
+  return left.track === right.track && left.artist === right.artist;
+}
+
+function isVolumeOnlyPatch(patch?: Partial<PlayerStatus>): boolean {
+  if (!patch || patch.volume === undefined) return false;
+  return (
+    patch.state === undefined &&
+    patch.muted === undefined &&
+    patch.secs === undefined &&
+    patch.shuffle === undefined &&
+    patch.repeat === undefined
+  );
+}
+
+/** Freeze transport; keep artwork/title through empty skip/back polls. */
+function applyPlaybackHold(incoming: PlayerStatus, previous: PlayerStatus): PlayerStatus {
+  const keepMeta = !hasTrackMeta(incoming) && hasTrackMeta(previous);
+  const keepSecs = keepMeta || (hasTrackMeta(incoming) && isSameTrack(incoming, previous));
+  const meta = keepMeta ? previous : incoming;
+  return {
+    ...incoming,
+    state: previous.state,
+    muted: previous.muted,
+    volume: previous.volume,
+    shuffle: previous.shuffle,
+    repeat: previous.repeat,
+    secs: keepSecs ? previous.secs : incoming.secs,
+    track: meta.track,
+    artist: meta.artist,
+    album: meta.album,
+    image: meta.image || previous.image,
+    totlen: keepMeta ? previous.totlen : incoming.totlen,
+    quality: meta.quality,
+    stream_format: meta.stream_format,
+    service: meta.service,
+    service_id: meta.service_id,
+    can_seek: keepMeta ? previous.can_seek : incoming.can_seek,
+  };
 }
 
 function mergeRemoteDevice(
@@ -77,16 +124,7 @@ function mergeRemoteDevice(
     next = { ...next, volume: previous.volume };
   }
   if ((playbackHoldUntil[incoming.id] ?? 0) > now) {
-    // Keep optimistic play/pause/mute/volume until the hold window expires
-    next = {
-      ...next,
-      state: previous.state,
-      muted: previous.muted,
-      volume: previous.volume,
-      secs: previous.secs,
-      shuffle: previous.shuffle,
-      repeat: previous.repeat,
-    };
+    next = applyPlaybackHold(next, previous);
   }
   return next;
 }
@@ -96,6 +134,7 @@ export const useFleetStore = create<FleetState>((set, get) => ({
   discoveredAt: null,
   discoveryMethod: '',
   sync: null,
+  health: null,
   connection: 'connecting',
   loading: true,
   refreshing: false,
@@ -216,6 +255,7 @@ export const useFleetStore = create<FleetState>((set, get) => ({
       }
       return { sync, syncHoldUntil: 0 };
     }),
+  setHealth: (health) => set({ health }),
   setToast: (toast) => set({ toast }),
 
   setAllVolumesLocal: (level) =>
@@ -468,12 +508,17 @@ export const useFleetStore = create<FleetState>((set, get) => ({
   load: async () => {
     set({ loading: true, error: null });
     try {
-      const [fleet, sync] = await Promise.all([api.listDevices(), api.getSync()]);
+      const [fleet, sync, health] = await Promise.all([
+        api.listDevices(),
+        api.getSync(),
+        api.getFleetHealth().catch(() => get().health),
+      ]);
       set({
         devices: fleet.devices,
         discoveredAt: fleet.discovered_at,
         discoveryMethod: fleet.discovery_method,
         sync,
+        health: health ?? get().health,
         loading: false,
       });
     } catch (err) {
@@ -485,15 +530,17 @@ export const useFleetStore = create<FleetState>((set, get) => ({
   refresh: async () => {
     set({ refreshing: true, error: null });
     try {
-      const [fleet, sync] = await Promise.all([
+      const [fleet, sync, health] = await Promise.all([
         api.refreshDevices(),
         api.getSync(),
+        api.getFleetHealth().catch(() => get().health),
       ]);
       set({
         devices: fleet.devices,
         discoveredAt: fleet.discovered_at,
         discoveryMethod: fleet.discovery_method,
         sync,
+        health: health ?? get().health,
         refreshing: false,
       });
     } catch (err) {
@@ -518,13 +565,18 @@ export const useFleetStore = create<FleetState>((set, get) => ({
     let lastError: unknown;
     for (let attempt = 0; attempt < attempts; attempt++) {
       try {
-        const [fleet, sync] = await Promise.all([api.listDevices(), api.getSync()]);
+        const [fleet, sync, health] = await Promise.all([
+          api.listDevices(),
+          api.getSync(),
+          api.getFleetHealth().catch(() => get().health),
+        ]);
         if (!linkPresent(sync)) {
           // BluOS SyncStatus often lags AddSlave — keep optimistic sync painted.
           set({
             devices: fleet.devices,
             discoveredAt: fleet.discovered_at,
             discoveryMethod: fleet.discovery_method,
+            health: health ?? get().health,
           });
           await new Promise((r) => window.setTimeout(r, 200));
           continue;
@@ -534,6 +586,7 @@ export const useFleetStore = create<FleetState>((set, get) => ({
           discoveredAt: fleet.discovered_at,
           discoveryMethod: fleet.discovery_method,
           sync,
+          health: health ?? get().health,
           syncHoldUntil: 0,
         });
         return;
@@ -555,47 +608,23 @@ export const useFleetStore = create<FleetState>((set, get) => ({
 
   control: async (deviceId, action, optimistic) => {
     const previous = get().devices.find((d) => d.id === deviceId);
+    const volumeOnly = isVolumeOnlyPatch(optimistic);
+    if (!volumeOnly) {
+      get().holdPlayback(deviceId);
+    }
+    if (optimistic?.volume !== undefined) {
+      get().holdVolume(deviceId);
+    }
     if (optimistic) {
-      const now = Date.now();
-      set((state) => {
-        const playbackHoldUntil = { ...state.playbackHoldUntil };
-        const volumeHoldUntil = { ...state.volumeHoldUntil };
-        if (optimistic.state !== undefined || optimistic.muted !== undefined) {
-          playbackHoldUntil[deviceId] = now + PLAYBACK_HOLD_MS;
-        }
-        if (
-          optimistic.secs !== undefined ||
-          optimistic.shuffle !== undefined ||
-          optimistic.repeat !== undefined
-        ) {
-          playbackHoldUntil[deviceId] = now + PLAYBACK_HOLD_MS;
-        }
-        if (optimistic.volume !== undefined) {
-          volumeHoldUntil[deviceId] = now + VOLUME_HOLD_MS;
-        }
-        return {
-          playbackHoldUntil,
-          volumeHoldUntil,
-          devices: state.devices.map((d) =>
-            d.id === deviceId ? { ...d, ...optimistic } : d,
-          ),
-        };
-      });
+      get().patchDevice(deviceId, optimistic);
     }
     try {
       await action();
-      // Extend hold so a slow BluOS status poll can't snap the UI back
-      if (
-        optimistic?.muted !== undefined ||
-        optimistic?.state !== undefined ||
-        optimistic?.secs !== undefined ||
-        optimistic?.shuffle !== undefined ||
-        optimistic?.repeat !== undefined
-      ) {
-        get().holdPlayback(deviceId, PLAYBACK_HOLD_MS);
+      if (!volumeOnly) {
+        get().holdPlayback(deviceId);
       }
       if (optimistic?.volume !== undefined) {
-        get().holdVolume(deviceId, VOLUME_HOLD_MS);
+        get().holdVolume(deviceId);
       }
     } catch (err) {
       if (previous) {

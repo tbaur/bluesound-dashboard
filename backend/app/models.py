@@ -248,6 +248,28 @@ class FleetActionResponse(BaseModel):
     results: list[FleetVolumeResult]
 
 
+class PresenceDrop(BaseModel):
+    """One offline stretch recorded from the status poller (not device uptime)."""
+
+    device_id: str
+    name: str
+    started_at: float
+    ended_at: float | None = None
+    duration_seconds: float = 0
+    peak_failures: int = 1
+    slow_poll: bool = False
+
+
+class FleetHealthResponse(BaseModel):
+    started_at: float
+    observed_at: float
+    window_seconds: int = 86_400
+    presence_window_seconds: int = 43_200
+    circuit_failure_threshold: int = 5
+    first_online: dict[str, float] = Field(default_factory=dict)
+    drops: list[PresenceDrop] = Field(default_factory=list)
+
+
 class SyncEnableResponse(BaseModel):
     action: str = "sync_enable"
     primary_id: str

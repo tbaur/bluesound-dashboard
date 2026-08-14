@@ -95,6 +95,27 @@ describe('api client', () => {
     vi.useRealTimers();
   });
 
+  it('does not treat a caller abort as a timeout', async () => {
+    const caller = new AbortController();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: string, init?: RequestInit) => {
+        return new Promise((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('Aborted', 'AbortError'));
+          });
+        });
+      }),
+    );
+    const pending = api.getQueue('player-1', { signal: caller.signal });
+    caller.abort();
+    await expect(pending).rejects.toSatisfy((err: unknown) => {
+      expect(err).toBeInstanceOf(DOMException);
+      expect((err as DOMException).name).toBe('AbortError');
+      return true;
+    });
+  });
+
   it('posts settings writes with control_path', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

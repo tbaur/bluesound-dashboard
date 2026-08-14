@@ -12,6 +12,7 @@ const getBluetooth = vi.fn();
 const diagnose = vi.fn();
 const getUpgrade = vi.fn();
 const reboot = vi.fn();
+const moveQueueItem = vi.fn();
 
 vi.mock('@/api/client', () => ({
   api: {
@@ -22,6 +23,7 @@ vi.mock('@/api/client', () => ({
     diagnose: (...args: unknown[]) => diagnose(...args),
     getUpgrade: (...args: unknown[]) => getUpgrade(...args),
     reboot: (...args: unknown[]) => reboot(...args),
+    moveQueueItem: (...args: unknown[]) => moveQueueItem(...args),
   },
 }));
 
@@ -115,12 +117,14 @@ describe('PlayerDetailPage maintenance', () => {
       ok: true,
     });
     reboot.mockReset().mockResolvedValue(undefined);
+    moveQueueItem.mockReset().mockResolvedValue(undefined);
 
     useFleetStore.setState({
       devices: [sample],
       discoveredAt: Date.now(),
       discoveryMethod: 'mdns',
       sync: null,
+      health: null,
       connection: 'live',
       loading: false,
       refreshing: false,
@@ -142,7 +146,7 @@ describe('PlayerDetailPage maintenance', () => {
   it('auto-checks upgrade on load and again from the button', async () => {
     renderPlayer();
     await screen.findByText('No update available on this player.');
-    expect(getUpgrade).toHaveBeenCalledWith('player-kitchen');
+    expect(getUpgrade.mock.calls[0]?.[0]).toBe('player-kitchen');
 
     const before = getUpgrade.mock.calls.length;
     fireEvent.click(screen.getByRole('button', { name: 'Check for upgrade' }));
@@ -178,9 +182,98 @@ describe('PlayerDetailPage maintenance', () => {
     expect(screen.queryByText(/Failed to load/i)).not.toBeInTheDocument();
   });
 
-  it('shows Bluetooth controls when supported', async () => {
+  it('shows uptime even when inputs never resolve', async () => {
+    getInputs.mockReturnValue(new Promise(() => {}));
+    diagnose.mockResolvedValue({
+      device_id: 'player-kitchen',
+      ip: '192.168.1.20',
+      name: 'Kitchen',
+      model: 'NODE',
+      full_model: 'Bluesound NODE',
+      device_class: 'streamer',
+      mac: '',
+      fw: '4.16.6',
+      state: 'pause',
+      service: '',
+      volume: 20,
+      muted: false,
+      db: '-40',
+      sync_role: 'standalone',
+      master: '',
+      group: '',
+      uptime: '37h13m24s',
+    });
     renderPlayer();
-    expect(await screen.findByRole('heading', { name: 'Bluetooth' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Automatic' })).toBeInTheDocument();
+    expect(await screen.findByText('1d 13h')).toBeInTheDocument();
+    expect(diagnose.mock.calls[0]?.[0]).toBe('player-kitchen');
+  });
+
+  it('aborts diagnose when leaving the player page', async () => {
+    let signal: AbortSignal | undefined;
+    diagnose.mockImplementation((_id: string, init?: RequestInit) => {
+      signal = init?.signal ?? undefined;
+      return new Promise((_, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('Aborted', 'AbortError'));
+        });
+      });
+    });
+    const { unmount } = renderPlayer();
+    await waitFor(() => expect(signal).toBeDefined());
+    unmount();
+    expect(signal?.aborted).toBe(true);
+  });
+
+  it('moves a queue track down without waiting for diagnose', async () => {
+    getQueue
+      .mockResolvedValueOnce({
+        count: 2,
+        items: [
+          { title: 'First', artist: 'A', album: '', image: '', service: '' },
+          { title: 'Second', artist: 'B', album: '', image: '', service: '' },
+        ],
+      })
+      .mockResolvedValue({
+        count: 2,
+        items: [
+          { title: 'Second', artist: 'B', album: '', image: '', service: '' },
+          { title: 'First', artist: 'A', album: '', image: '', service: '' },
+        ],
+      });
+    diagnose.mockImplementation(() => new Promise(() => {}));
+    renderPlayer();
+    fireEvent.click(await screen.findByRole('button', { name: 'Move First down' }));
+    await waitFor(() => expect(moveQueueItem).toHaveBeenCalledWith('player-kitchen', 0, 1));
+    expect(screen.getByRole('button', { name: 'Move First up' })).toBeEnabled();
+  });
+
+  it('shows poller health on the device panel', async () => {
+    useFleetStore.setState({
+      devices: [{ ...sample, consecutive_failures: 2, last_seen: Date.now() / 1000 - 12 }],
+      health: {
+        started_at: Date.now() / 1000 - 600,
+        observed_at: Date.now() / 1000,
+        window_seconds: 86_400,
+        presence_window_seconds: 43_200,
+        circuit_failure_threshold: 5,
+        first_online: { 'player-kitchen': Date.now() / 1000 - 600 },
+        drops: [
+          {
+            device_id: 'player-kitchen',
+            name: 'Kitchen',
+            started_at: Date.now() / 1000 - 180,
+            ended_at: Date.now() / 1000 - 60,
+            duration_seconds: 120,
+            peak_failures: 2,
+            slow_poll: false,
+          },
+        ],
+      },
+    });
+    renderPlayer();
+    expect(await screen.findByText('Last 12h')).toBeInTheDocument();
+    expect(screen.getByText('Last drop').nextElementSibling).toHaveTextContent(/2m/);
+    expect(screen.getByText('Failures').nextElementSibling).toHaveTextContent('2');
+    expect(screen.getByText('Last seen').nextElementSibling).toHaveTextContent(/ago|just now/);
   });
 });

@@ -114,6 +114,7 @@ describe('HousePage actions', () => {
       discoveredAt: Date.now(),
       discoveryMethod: 'mdns',
       sync: syncWithGroup,
+      health: null,
       connection: 'live',
       loading: false,
       refreshing: false,
@@ -138,6 +139,33 @@ describe('HousePage actions', () => {
         useFleetStore.setState({ toast });
       }),
     });
+  });
+
+  it('shows the Health panel under the house remote', () => {
+    useFleetStore.setState({
+      health: {
+        started_at: Date.now() / 1000 - 600,
+        observed_at: Date.now() / 1000,
+        window_seconds: 86_400,
+        presence_window_seconds: 43_200,
+        circuit_failure_threshold: 5,
+        first_online: { 'player-1': Date.now() / 1000 - 600 },
+        drops: [
+          {
+            device_id: 'player-1',
+            name: 'Kitchen',
+            started_at: Date.now() / 1000 - 180,
+            ended_at: Date.now() / 1000 - 60,
+            duration_seconds: 120,
+            peak_failures: 3,
+            slow_poll: false,
+          },
+        ],
+      },
+    });
+    renderHouse();
+    expect(screen.getByRole('heading', { name: 'Health' })).toBeInTheDocument();
+    expect(screen.getByText(/2m · 3 fails → recovered/)).toBeInTheDocument();
   });
 
   it('lists each device once with status and firmware in the same row', () => {

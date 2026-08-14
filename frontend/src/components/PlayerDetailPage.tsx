@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { api } from '@/api/client';
-import type { AudioInput, DiagnoseResponse, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
+import type { AudioInput, DiagnoseResponse, PlayerStatus, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
 import { DeviceSettingsPanel } from '@/components/DeviceSettingsPanel';
+import { PresenceBar } from '@/components/PresenceBar';
 import { SeekBar } from '@/components/SeekBar';
+import { StickyArt } from '@/components/StickyArt';
 import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
 import {
   deviceEndpoint,
@@ -11,8 +13,16 @@ import {
   formatDeviceHardware,
   formatDeviceHost,
 } from '@/lib/endpoint';
+import {
+  formatDropLine,
+  formatRelativeAge,
+  latestDrop,
+  presenceSegments,
+} from '@/lib/health';
 import { META_SEP, joinMeta } from '@/lib/meta';
+import { reorderQueue } from '@/lib/queue';
 import { streamQualityLabel } from '@/lib/streamQuality';
+import { formatPlayerUptime } from '@/lib/uptime';
 import { useFleetStore } from '@/store/fleetStore';
 
 function syncSummary(
@@ -41,6 +51,7 @@ export function PlayerDetailPage() {
   const patchDevice = useFleetStore((s) => s.patchDevice);
   const toast = useFleetStore((s) => s.toast);
   const setToast = useFleetStore((s) => s.setToast);
+  const health = useFleetStore((s) => s.health);
   const volumeCommitTimer = useRef<number | undefined>(undefined);
   const nudgeBaseline = useRef(device?.volume ?? 0);
 
@@ -53,54 +64,44 @@ export function PlayerDetailPage() {
   const [upgrade, setUpgrade] = useState<UpgradeStatus | null>(null);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const progressKey = `${device?.id ?? ''}|${device?.track ?? ''}|${device?.totlen ?? 0}`;
+  const [advancedOpen, setAdvancedOpen] = useState(false);
+  const scrapeAbort = useRef<AbortController | null>(null);
+
+  const interruptScrapes = () => {
+    scrapeAbort.current?.abort();
+  };
 
   useEffect(() => {
     if (!id) return;
-    let cancelled = false;
-    (async () => {
-      const results = await Promise.allSettled([
-        api.getQueue(id),
-        api.getInputs(id),
-        api.getPresets(id),
-        api.getBluetooth(id),
-        api.diagnose(id),
-      ]);
-      if (cancelled) return;
-      const failures: string[] = [];
-      const [q, i, p, b, d] = results;
-      if (q.status === 'fulfilled') setQueue(q.value);
-      else failures.push('queue');
-      if (i.status === 'fulfilled') setInputs(i.value);
-      else failures.push('inputs');
-      if (p.status === 'fulfilled') setPresets(p.value);
-      else failures.push('presets');
-      if (b.status === 'fulfilled') {
-        setBluetoothSupported(b.value.supported);
-        setBluetooth(b.value.supported ? (b.value.mode ?? '') : '');
-      } else {
-        setBluetoothSupported(false);
-        failures.push('bluetooth');
-      }
-      if (d.status === 'fulfilled') setDiag(d.value);
-      else failures.push('diagnostics');
-      setDetailError(failures.length ? `Failed to load: ${failures.join(', ')}` : null);
-    })();
-    return () => {
-      cancelled = true;
-    };
+    const ac = new AbortController();
+    void api
+      .getQueue(id, { signal: ac.signal })
+      .then((value) => {
+        if (!ac.signal.aborted) setQueue(value);
+      })
+      .catch(() => {
+        if (!ac.signal.aborted) setDetailError('Failed to load: queue');
+      });
+    return () => ac.abort();
   }, [id]);
 
   useEffect(() => {
     if (!id) return;
-    let cancelled = false;
-    void api
-      .getUpgrade(id)
-      .then((value) => {
-        if (!cancelled) setUpgrade(value);
-      })
-      .catch(() => {
-        if (!cancelled) {
+    const ac = new AbortController();
+    scrapeAbort.current = ac;
+    void (async () => {
+      try {
+        const value = await api.diagnose(id, { signal: ac.signal });
+        if (!ac.signal.aborted) setDiag(value);
+      } catch {
+        /* aborted or failed — Device card keeps "—" */
+      }
+      if (ac.signal.aborted) return;
+      try {
+        const value = await api.getUpgrade(id, { signal: ac.signal });
+        if (!ac.signal.aborted) setUpgrade(value);
+      } catch {
+        if (!ac.signal.aborted) {
           setUpgrade({
             device_id: id,
             name: '',
@@ -111,11 +112,44 @@ export function PlayerDetailPage() {
             ok: false,
           });
         }
-      });
-    return () => {
-      cancelled = true;
-    };
+      }
+    })();
+    return () => ac.abort();
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !advancedOpen) return;
+    const ac = new AbortController();
+    void (async () => {
+      const failures: string[] = [];
+      try {
+        const value = await api.getInputs(id, { signal: ac.signal });
+        if (!ac.signal.aborted) setInputs(value);
+      } catch {
+        failures.push('inputs');
+      }
+      try {
+        const value = await api.getPresets(id, { signal: ac.signal });
+        if (!ac.signal.aborted) setPresets(value);
+      } catch {
+        failures.push('presets');
+      }
+      try {
+        const value = await api.getBluetooth(id, { signal: ac.signal });
+        if (!ac.signal.aborted) {
+          setBluetoothSupported(value.supported);
+          setBluetooth(value.supported ? (value.mode ?? '') : '');
+        }
+      } catch {
+        setBluetoothSupported(false);
+        failures.push('bluetooth');
+      }
+      if (!ac.signal.aborted && failures.length) {
+        setDetailError(`Failed to load: ${failures.join(', ')}`);
+      }
+    })();
+    return () => ac.abort();
+  }, [id, advancedOpen]);
 
   useEffect(() => {
     if (device) nudgeBaseline.current = device.volume;
@@ -182,6 +216,41 @@ export function PlayerDetailPage() {
   const activeInput = inputs.find((input) => input.selected);
   const upgradeView = upgrade && upgrade.device_id === id ? upgrade : null;
   const metaLine = streamQualityLabel(device.quality, device.stream_format);
+  const nowSec = health?.observed_at ?? device.last_seen ?? 0;
+  const lastDrop = health ? latestDrop(health, device.id) : null;
+  const presence = health
+    ? presenceSegments({
+        deviceId: device.id,
+        firstOnlineAt: health.first_online[device.id],
+        drops: health.drops,
+        now: nowSec,
+        windowSeconds: health.presence_window_seconds,
+      })
+    : [];
+  const slowPoll =
+    Boolean(health) && device.consecutive_failures >= (health?.circuit_failure_threshold ?? 5);
+
+  const runDeviceControl = (
+    action: () => Promise<void>,
+    optimistic?: Partial<PlayerStatus>,
+  ) => {
+    interruptScrapes();
+    void control(device.id, action, optimistic);
+  };
+
+  const moveQueue = (fromIndex: number, toIndex: number) => {
+    if (!queue) return;
+    interruptScrapes();
+    setQueue(reorderQueue(queue, fromIndex, toIndex));
+    void (async () => {
+      await control(device.id, () => api.moveQueueItem(device.id, fromIndex, toIndex));
+      try {
+        setQueue(await api.getQueue(device.id));
+      } catch {
+        /* keep optimistic order */
+      }
+    })();
+  };
 
   return (
     <div className="app-shell dossier">
@@ -223,11 +292,10 @@ export function PlayerDetailPage() {
       <section className="panel dossier-now">
         <div className="dossier-now-grid">
           <div className="dossier-art" aria-hidden={!device.image}>
-            {device.image ? (
-              <img src={device.image} alt="" />
-            ) : (
-              <div className="dossier-art-empty">No artwork</div>
-            )}
+            <StickyArt
+              src={device.image}
+              empty={<div className="dossier-art-empty">No artwork</div>}
+            />
           </div>
           <div className="dossier-now-copy">
             <p className="card-meta">{isIdle ? 'Status' : 'Now playing'}</p>
@@ -247,7 +315,7 @@ export function PlayerDetailPage() {
             </p>
             {device.totlen > 0 && (
               <SeekBar
-                key={progressKey}
+                key={device.id}
                 initialSecs={device.secs}
                 totlen={device.totlen}
                 playing={['play', 'stream'].includes(device.state)}
@@ -255,7 +323,7 @@ export function PlayerDetailPage() {
                 onSeek={
                   device.can_seek
                     ? (seconds) =>
-                        void control(device.id, () => api.seek(device.id, seconds), {
+                        runDeviceControl(() => api.seek(device.id, seconds), {
                           secs: seconds,
                         })
                     : undefined
@@ -263,15 +331,14 @@ export function PlayerDetailPage() {
               />
             )}
             <div className="transport" style={{ marginTop: 14 }}>
-              <button type="button" className="btn" onClick={() => void control(device.id, () => api.back(device.id))}>
+              <button type="button" className="btn" onClick={() => runDeviceControl(() => api.back(device.id))}>
                 Prev
               </button>
               <button
                 type="button"
                 className="btn btn-primary"
                 onClick={() =>
-                  void control(
-                    device.id,
+                  runDeviceControl(
                     () => api.toggle(device.id),
                     { state: playing ? 'pause' : 'play' },
                   )
@@ -282,11 +349,11 @@ export function PlayerDetailPage() {
               <button
                 type="button"
                 className="btn"
-                onClick={() => void control(device.id, () => api.stop(device.id), { state: 'stop' })}
+                onClick={() => runDeviceControl(() => api.stop(device.id), { state: 'stop' })}
               >
                 Stop
               </button>
-              <button type="button" className="btn" onClick={() => void control(device.id, () => api.skip(device.id))}>
+              <button type="button" className="btn" onClick={() => runDeviceControl(() => api.skip(device.id))}>
                 Next
               </button>
             </div>
@@ -305,9 +372,32 @@ export function PlayerDetailPage() {
               {device.muted ? `${META_SEP}muted` : ''}
             </dd>
           </div>
+          {health ? (
+            <div className="presence-block">
+              <dt>Last 12h</dt>
+              <dd>
+                <PresenceBar segments={presence} />
+              </dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>Last drop</dt>
+            <dd>{lastDrop ? formatDropLine(lastDrop) : '—'}</dd>
+          </div>
+          <div>
+            <dt>Failures</dt>
+            <dd>
+              {device.consecutive_failures}
+              {slowPoll ? `${META_SEP}slow-poll` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt>Last seen</dt>
+            <dd>{formatRelativeAge(device.last_seen, nowSec) || '—'}</dd>
+          </div>
           <div>
             <dt>Uptime</dt>
-            <dd>{diag?.uptime || '—'}</dd>
+            <dd>{formatPlayerUptime(diag?.uptime) || '—'}</dd>
           </div>
           <div>
             <dt>Sync</dt>
@@ -390,7 +480,10 @@ export function PlayerDetailPage() {
         </div>
       </section>
 
-      <details className="panel panel-collapse">
+      <details
+        className="panel panel-collapse"
+        onToggle={(event) => setAdvancedOpen(event.currentTarget.open)}
+      >
         <summary>
           <h2>Advanced</h2>
           <span className="card-meta">
@@ -419,12 +512,7 @@ export function PlayerDetailPage() {
                         className="btn btn-compact"
                         disabled={index === 0}
                         aria-label={`Move ${item.title} up`}
-                        onClick={() =>
-                          void control(device.id, async () => {
-                            await api.moveQueueItem(device.id, index, index - 1);
-                            setQueue(await api.getQueue(device.id));
-                          })
-                        }
+                        onClick={() => moveQueue(index, index - 1)}
                       >
                         ↑
                       </button>
@@ -433,12 +521,7 @@ export function PlayerDetailPage() {
                         className="btn btn-compact"
                         disabled={index >= queue.items.length - 1}
                         aria-label={`Move ${item.title} down`}
-                        onClick={() =>
-                          void control(device.id, async () => {
-                            await api.moveQueueItem(device.id, index, index + 1);
-                            setQueue(await api.getQueue(device.id));
-                          })
-                        }
+                        onClick={() => moveQueue(index, index + 1)}
                       >
                         ↓
                       </button>
@@ -453,7 +536,7 @@ export function PlayerDetailPage() {
               style={{ marginTop: 12 }}
               onClick={() => {
                 if (window.confirm('Clear the queue on this player?')) {
-                  void control(device.id, async () => {
+                  runDeviceControl(async () => {
                     await api.clearQueue(device.id);
                     setQueue(await api.getQueue(device.id));
                   });
@@ -478,7 +561,7 @@ export function PlayerDetailPage() {
                     className={input.selected ? 'btn btn-primary' : 'btn'}
                     disabled={input.selected}
                     onClick={() =>
-                      void control(device.id, async () => {
+                      runDeviceControl(async () => {
                         await api.setInput(device.id, input.id || input.name);
                         setInputs(await api.getInputs(device.id));
                       })
@@ -503,7 +586,7 @@ export function PlayerDetailPage() {
                     <button
                       type="button"
                       className="btn"
-                      onClick={() => void control(device.id, () => api.playPreset(device.id, preset.id))}
+                      onClick={() => runDeviceControl(() => api.playPreset(device.id, preset.id))}
                     >
                       Play
                     </button>
@@ -531,7 +614,7 @@ export function PlayerDetailPage() {
                     type="button"
                     className={bluetooth === label ? 'btn btn-primary' : 'btn'}
                     onClick={() =>
-                      void control(device.id, async () => {
+                      runDeviceControl(async () => {
                         await api.setBluetooth(device.id, mode);
                         const next = await api.getBluetooth(device.id);
                         setBluetoothSupported(next.supported);
@@ -546,7 +629,7 @@ export function PlayerDetailPage() {
             </section>
           ) : null}
 
-          <DeviceSettingsPanel deviceId={device.id} />
+          {advancedOpen ? <DeviceSettingsPanel deviceId={device.id} /> : null}
 
           <section>
             <h3>Maintenance</h3>
@@ -594,7 +677,7 @@ export function PlayerDetailPage() {
                       `Reboot ${device.name}? Playback will stop until it comes back.`,
                     )
                   ) {
-                    void control(device.id, () => api.reboot(device.id));
+                    void runDeviceControl(() => api.reboot(device.id));
                   }
                 }}
               >

@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+from pathlib import Path
+
 import httpx
 import pytest
 import respx
 
 from app.bluos.client import BluOSClient
+from app.bluos.webui import BluOSWebUIMixin
 from app.config import Settings
 from tests.fixtures.xml_samples import (
     CAPTURE_SETTINGS,
@@ -432,6 +435,40 @@ async def test_get_uptime_uses_port_80_diagnostics(settings: Settings) -> None:
             200,
             text="<div>Uptime:</div><div>12h3m</div>",
         )
+    )
+    client = BluOSClient(settings)
+    try:
+        assert await client.get_uptime("192.168.1.20") == "12h3m"
+    finally:
+        await client.aclose()
+
+
+def test_parse_ci_s2_diagnostics_html() -> None:
+    html = (Path(__file__).parent / "fixtures" / "ci_diagnostics.html").read_text()
+    parsed = BluOSWebUIMixin._parse_diagnostics_html(html)
+    assert parsed["uptime"] == "37h13m24s"
+    assert parsed["web_ip"] == "172.16.10.101"
+    assert parsed["web_mac"] == "90:56:82:16:61:8c"
+    assert parsed["web_fw"] == "4.16.6"
+    assert parsed["total_songs"] == "0"
+    assert "network_name" not in parsed
+    assert "signal_strength" not in parsed
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_diagnostics_retries_connect_error(settings: Settings) -> None:
+    respx.get("http://192.168.1.20/diagnostics").mock(
+        side_effect=[
+            httpx.ConnectError("boom"),
+            httpx.Response(
+                200,
+                text=(
+                    '<div class="ui-block-a">Uptime:</div>'
+                    '<div class="ui-block-b">12h3m</div>'
+                ),
+            ),
+        ]
     )
     client = BluOSClient(settings)
     try:

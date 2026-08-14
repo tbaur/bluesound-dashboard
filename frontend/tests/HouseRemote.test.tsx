@@ -153,6 +153,23 @@ describe('HouseRemote', () => {
     await waitFor(() => expect(setShuffle).toHaveBeenCalledWith('1', 1));
   });
 
+  it('does not dim transport while skip is in flight', async () => {
+    let release!: () => void;
+    skip.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    );
+    renderRemote();
+    fireEvent.click(screen.getByRole('button', { name: 'Next track' }));
+    expect(screen.getByRole('button', { name: 'Pause house stream' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Next track' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Mute' })).toBeEnabled();
+    release();
+    await waitFor(() => expect(skip).toHaveBeenCalledWith('1'));
+  });
+
   it('seeks the house stream', async () => {
     renderRemote();
     const slider = screen.getByRole('slider', { name: 'Seek' });

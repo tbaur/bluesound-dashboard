@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 import time
@@ -24,6 +25,16 @@ from app.validators import format_endpoint, sanitize_ip
 logger = logging.getLogger(__name__)
 
 _XML_TRUE = frozenset({"true", "1", "yes"})
+# /diagnostics can stall while the player enumerates peers; control GETs stay at 3s.
+_WEB_UI_GET_TIMEOUT = 10.0
+_WEB_UI_GET_ATTEMPTS = 2
+_UPTIME_PATTERNS = (
+    re.compile(
+        r"Uptime:\s*</div>\s*<div[^>]*>\s*([^<]+?)\s*</div>",
+        re.IGNORECASE | re.DOTALL,
+    ),
+    re.compile(r"Uptime:\s*</[^>]+>\s*([^<\s]+)", re.IGNORECASE),
+)
 
 
 def _xml_flag(node: ET.Element, attr: str) -> bool:
@@ -136,19 +147,29 @@ class BluOSWebUIMixin(BluOSTransport):
             logger.warning("blocked_non_private_ip", extra={"device_ip": sanitized})
             return None
         url = self._web_ui_url(sanitized, path)
-        try:
-            async with self._sem:
-                response = await self._follow_get(sanitized, url)
-            if response is None or response.status_code >= 400:
-                return None
-            text_body = response.text
-            if len(text_body.encode("utf-8", errors="ignore")) > self.settings.max_xml_size:
-                logger.warning("payload_too_large ip=%s path=%s", sanitized, path)
-                return None
-            return text_body
-        except (httpx.TimeoutException, httpx.TransportError, OSError) as exc:
-            logger.debug("web_ui_get_failed ip=%s path=%s err=%s", sanitized, path, exc)
-            return None
+        timeout = max(self.settings.device_http_timeout, _WEB_UI_GET_TIMEOUT)
+        last_error: Exception | None = None
+        for attempt in range(_WEB_UI_GET_ATTEMPTS):
+            try:
+                async with self._sem:
+                    response = await self._follow_get(sanitized, url, timeout=timeout)
+                if response is None or response.status_code >= 400:
+                    return None
+                text_body = response.text
+                if len(text_body.encode("utf-8", errors="ignore")) > self.settings.max_xml_size:
+                    logger.warning("payload_too_large ip=%s path=%s", sanitized, path)
+                    return None
+                return text_body
+            except httpx.TimeoutException as exc:
+                last_error = exc
+                break
+            except (httpx.TransportError, OSError) as exc:
+                last_error = exc
+                if attempt + 1 >= _WEB_UI_GET_ATTEMPTS:
+                    break
+                await asyncio.sleep(0.2)
+        logger.debug("web_ui_get_failed ip=%s path=%s err=%s", sanitized, path, last_error)
+        return None
 
     async def _post_web_ui(self, ip: str, path: str, data: dict[str, str]) -> bool:
         """POST form data to the device web UI (reverse-engineered settings writes)."""
@@ -196,22 +217,29 @@ class BluOSWebUIMixin(BluOSTransport):
             if cleaned:
                 out[key] = cleaned
         if "uptime" not in out:
-            match = re.search(
-                r"Uptime:</div>\s*<div[^>]*>(.*?)</div>", html, re.IGNORECASE
-            )
-            if match:
-                out["uptime"] = match.group(1).strip()
-            else:
-                match = re.search(r"Uptime:\s*</[^>]+>\s*([^<\s]+)", html, re.IGNORECASE)
-                if match:
-                    out["uptime"] = match.group(1).strip()
+            extracted = BluOSWebUIMixin._extract_uptime(html)
+            if extracted:
+                out["uptime"] = extracted
         return out
+
+    @staticmethod
+    def _extract_uptime(html: str) -> str:
+        for pattern in _UPTIME_PATTERNS:
+            match = pattern.search(html)
+            if not match:
+                continue
+            cleaned = re.sub(r"<[^>]+>", "", match.group(1)).strip()
+            if cleaned:
+                return cleaned
+        return ""
 
     async def get_diagnostics(self, ip: str) -> dict[str, str] | None:
         html = await self._get_web_ui(ip, "/diagnostics")
         if html is None:
             return None
         parsed = self._parse_diagnostics_html(html)
+        if not parsed.get("uptime"):
+            logger.warning("diagnostics_uptime_missing endpoint=%s html_len=%s", ip, len(html))
         return parsed or {}
 
     async def get_uptime(self, ip: str) -> str | None:

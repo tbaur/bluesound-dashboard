@@ -7,6 +7,7 @@ import type {
   DevicesResponse,
   FleetActionResponse,
   FleetFirmwareResponse,
+  FleetHealthResponse,
   FleetUpgradeResponse,
   PlayerStatus,
   Preset,
@@ -72,8 +73,9 @@ async function request<T>(
   delete rest.json;
   const timeoutController = new AbortController();
   const timeoutId = window.setTimeout(() => timeoutController.abort(), FETCH_TIMEOUT_MS);
-  const signal = rest.signal
-    ? abortWhenEither(rest.signal, timeoutController.signal)
+  const userSignal = rest.signal;
+  const signal = userSignal
+    ? abortWhenEither(userSignal, timeoutController.signal)
     : timeoutController.signal;
   try {
     const response = await fetch(`${BASE}${path}`, {
@@ -94,6 +96,8 @@ async function request<T>(
       throw err;
     }
     if (err instanceof DOMException && err.name === 'AbortError') {
+      // Caller cancelled (unmount / newer control) — not a server timeout.
+      if (userSignal?.aborted) throw err;
       throw timeoutError();
     }
     throw err;
@@ -121,17 +125,20 @@ export const api = {
     request<void>(`/devices/${id}/repeat`, { method: 'POST', json: { state } }),
   adjustVolume: (id: string, delta: number) =>
     request<void>(`/devices/${id}/volume/adjust`, { method: 'POST', json: { delta } }),
-  diagnose: (id: string) => request<DiagnoseResponse>(`/devices/${id}/diagnose`),
-  getSettings: (id: string, pageId: 'audio' | 'player') =>
-    request<DeviceSettingsResponse>(`/devices/${id}/settings/${pageId}`),
+  diagnose: (id: string, init?: RequestInit) =>
+    request<DiagnoseResponse>(`/devices/${id}/diagnose`, { cache: 'no-store', ...init }),
+  getSettings: (id: string, pageId: 'audio' | 'player', init?: RequestInit) =>
+    request<DeviceSettingsResponse>(`/devices/${id}/settings/${pageId}`, init),
   setSetting: (id: string, settingId: string, value: string, controlPath = '') =>
     request<void>(`/devices/${id}/settings`, {
       method: 'POST',
       json: { id: settingId, value, control_path: controlPath },
     }),
-  getUpgrade: (id: string) => request<UpgradeStatus>(`/devices/${id}/upgrade`),
+  getUpgrade: (id: string, init?: RequestInit) =>
+    request<UpgradeStatus>(`/devices/${id}/upgrade`, init),
   fleetFirmware: () => request<FleetFirmwareResponse>('/fleet/firmware'),
   fleetUpgrades: () => request<FleetUpgradeResponse>('/fleet/upgrades'),
+  getFleetHealth: () => request<FleetHealthResponse>('/fleet/health'),
   reboot: (id: string) =>
     request<void>(`/devices/${id}/reboot`, { method: 'POST' }),
   setVolume: (id: string, level: number) =>
@@ -181,16 +188,20 @@ export const api = {
     }>('/fleet/reboot', { method: 'POST' }),
   setMute: (id: string, mute: boolean) =>
     request<void>(`/devices/${id}/mute`, { method: 'POST', json: { mute } }),
-  getQueue: (id: string) => request<QueueResponse>(`/devices/${id}/queue`),
+  getQueue: (id: string, init?: RequestInit) =>
+    request<QueueResponse>(`/devices/${id}/queue`, init),
   clearQueue: (id: string) =>
     request<void>(`/devices/${id}/queue/clear`, { method: 'POST' }),
-  getInputs: (id: string) => request<AudioInput[]>(`/devices/${id}/inputs`),
+  getInputs: (id: string, init?: RequestInit) =>
+    request<AudioInput[]>(`/devices/${id}/inputs`, init),
   setInput: (id: string, input: string) =>
     request<void>(`/devices/${id}/input`, { method: 'POST', json: { input } }),
-  getBluetooth: (id: string) => request<BluetoothResponse>(`/devices/${id}/bluetooth`),
+  getBluetooth: (id: string, init?: RequestInit) =>
+    request<BluetoothResponse>(`/devices/${id}/bluetooth`, init),
   setBluetooth: (id: string, mode: 0 | 1 | 2 | 3) =>
     request<void>(`/devices/${id}/bluetooth`, { method: 'POST', json: { mode } }),
-  getPresets: (id: string) => request<Preset[]>(`/devices/${id}/presets`),
+  getPresets: (id: string, init?: RequestInit) =>
+    request<Preset[]>(`/devices/${id}/presets`, init),
   playPreset: (id: string, presetId: string | number) =>
     request<void>(`/devices/${id}/presets/${presetId}/play`, { method: 'POST' }),
   getSync: () => request<SyncState>('/sync'),

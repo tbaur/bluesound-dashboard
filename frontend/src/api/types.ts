@@ -50,6 +50,26 @@ export interface DevicesResponse {
   discovery_method: string;
 }
 
+export interface PresenceDrop {
+  device_id: string;
+  name: string;
+  started_at: number;
+  ended_at: number | null;
+  duration_seconds: number;
+  peak_failures: number;
+  slow_poll: boolean;
+}
+
+export interface FleetHealthResponse {
+  started_at: number;
+  observed_at: number;
+  window_seconds: number;
+  presence_window_seconds: number;
+  circuit_failure_threshold: number;
+  first_online: Record<string, number>;
+  drops: PresenceDrop[];
+}
+
 export interface QueueItem {
   title: string;
   artist: string;
