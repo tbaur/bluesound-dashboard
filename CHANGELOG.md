@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented in this file.
 
+## [0.9.0](https://github.com/tbaur/bluos-dashboard/compare/v0.8.1...v0.9.0) (2026-08-14)
+
+
+### Features
+
+* house remote, BluOS branding, and bluos-dashboard rename ([ca6a969](https://github.com/tbaur/bluos-dashboard/commit/ca6a9695fb70ccdeb02fb7afd4d5c8bb0bc3210c))
+
 ## [0.8.1](https://github.com/tbaur/bluos-dashboard/compare/v0.8.0...v0.8.1) (2026-08-13)
 
 
