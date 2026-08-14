@@ -91,6 +91,7 @@ describe('FleetPage sort', () => {
         player({ id: 'a', name: 'Alpha', ip: '10.0.0.1' }),
       ],
       sync: emptySync,
+      health: null,
       connection: 'live',
       loading: false,
       refreshing: false,
@@ -100,6 +101,32 @@ describe('FleetPage sort', () => {
       refresh: vi.fn().mockResolvedValue(undefined),
       setToast: vi.fn(),
     });
+  });
+
+  it('does not show the Health panel on the live fleet page', () => {
+    useFleetStore.setState({
+      health: {
+        started_at: 1_000,
+        observed_at: 1_200,
+        window_seconds: 86_400,
+        presence_window_seconds: 43_200,
+        circuit_failure_threshold: 5,
+        first_online: { a: 1_000 },
+        drops: [
+          {
+            device_id: 'a',
+            name: 'Alpha',
+            started_at: 1_100,
+            ended_at: 1_160,
+            duration_seconds: 60,
+            peak_failures: 2,
+            slow_poll: false,
+          },
+        ],
+      },
+    });
+    renderFleet();
+    expect(screen.queryByRole('heading', { name: 'Health' })).not.toBeInTheDocument();
   });
 
   it('defaults to A–Z sort when no runtime groups exist', () => {

@@ -3,6 +3,7 @@ import { Link } from 'react-router';
 import { api } from '@/api/client';
 import type { FleetUpgradeResponse, UpgradeStatus } from '@/api/types';
 import { ApiError } from '@/api/types';
+import { FleetHealthLog } from '@/components/FleetHealthLog';
 import { HouseRemote } from '@/components/HouseRemote';
 import { compareFirmware } from '@/lib/firmware';
 import { sortDevices } from '@/lib/fleetSort';
@@ -122,6 +123,7 @@ export function HousePage() {
       ) : null}
 
       {devices.length > 0 ? <HouseRemote variant="page" /> : null}
+      {devices.length > 0 ? <FleetHealthLog /> : null}
 
       <section className="panel">
         <h2>Devices</h2>

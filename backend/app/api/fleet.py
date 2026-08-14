@@ -20,6 +20,7 @@ from app.models import (
     FirmwareEntry,
     FleetActionResponse,
     FleetFirmwareResponse,
+    FleetHealthResponse,
     FleetUpgradeResponse,
     FleetVolumeResponse,
     FleetVolumeResult,
@@ -33,6 +34,13 @@ from app.validators import validate_device_id
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+@router.get("/fleet/health", response_model=FleetHealthResponse)
+async def fleet_health(state: StateDep) -> FleetHealthResponse:
+    """In-memory drop history from the status poller (this process only)."""
+    return state.poller.health.snapshot()
+
 
 @router.post("/fleet/volume", response_model=FleetVolumeResponse)
 async def set_fleet_volume(body: VolumeRequest, state: StateDep) -> FleetVolumeResponse:

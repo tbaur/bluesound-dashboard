@@ -10,7 +10,6 @@ from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 from app.api.common import StateDep
-from app.services.sync import build_sync_state
 
 router = APIRouter()
 
@@ -20,15 +19,10 @@ async def events(request: Request, state: StateDep) -> StreamingResponse:
 
     async def event_generator() -> AsyncIterator[str]:
         # Initial snapshot
-        snapshot = state.discovery.snapshot
         initial = json.dumps(
             {
                 "type": "fleet",
-                "data": {
-                    "devices": [d.model_dump() for d in snapshot.devices],
-                    "discovered_at": snapshot.discovered_at,
-                    "sync": build_sync_state(snapshot.devices).model_dump(),
-                },
+                "data": state.poller.fleet_payload(),
             },
             default=str,
         )

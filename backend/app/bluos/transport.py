@@ -76,10 +76,20 @@ class BluOSTransport:
             return None
         return next_url
 
-    async def _follow_get(self, origin_ip: str, url: str) -> httpx.Response | None:
+    async def _follow_get(
+        self,
+        origin_ip: str,
+        url: str,
+        *,
+        timeout: float | None = None,
+    ) -> httpx.Response | None:
         current = url
         for _ in range(_MAX_REDIRECTS + 1):
-            response = await self._client.get(current)
+            response = (
+                await self._client.get(current, timeout=timeout)
+                if timeout is not None
+                else await self._client.get(current)
+            )
             if response.status_code not in _REDIRECT_STATUSES:
                 return response
             location = response.headers.get("Location")

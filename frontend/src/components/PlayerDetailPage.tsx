@@ -3,7 +3,9 @@ import { Link, useParams } from 'react-router';
 import { api } from '@/api/client';
 import type { AudioInput, DiagnoseResponse, Preset, QueueResponse, UpgradeStatus } from '@/api/types';
 import { DeviceSettingsPanel } from '@/components/DeviceSettingsPanel';
+import { PresenceBar } from '@/components/PresenceBar';
 import { SeekBar } from '@/components/SeekBar';
+import { StickyArt } from '@/components/StickyArt';
 import { VolumeNudgeButtons } from '@/components/VolumeNudgeButtons';
 import {
   deviceEndpoint,
@@ -11,8 +13,15 @@ import {
   formatDeviceHardware,
   formatDeviceHost,
 } from '@/lib/endpoint';
+import {
+  formatDropLine,
+  formatRelativeAge,
+  latestDrop,
+  presenceSegments,
+} from '@/lib/health';
 import { META_SEP, joinMeta } from '@/lib/meta';
 import { streamQualityLabel } from '@/lib/streamQuality';
+import { formatPlayerUptime } from '@/lib/uptime';
 import { useFleetStore } from '@/store/fleetStore';
 
 function syncSummary(
@@ -41,6 +50,7 @@ export function PlayerDetailPage() {
   const patchDevice = useFleetStore((s) => s.patchDevice);
   const toast = useFleetStore((s) => s.toast);
   const setToast = useFleetStore((s) => s.setToast);
+  const health = useFleetStore((s) => s.health);
   const volumeCommitTimer = useRef<number | undefined>(undefined);
   const nudgeBaseline = useRef(device?.volume ?? 0);
 
@@ -53,7 +63,6 @@ export function PlayerDetailPage() {
   const [upgrade, setUpgrade] = useState<UpgradeStatus | null>(null);
   const [upgradeBusy, setUpgradeBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const progressKey = `${device?.id ?? ''}|${device?.track ?? ''}|${device?.totlen ?? 0}`;
 
   useEffect(() => {
     if (!id) return;
@@ -64,11 +73,10 @@ export function PlayerDetailPage() {
         api.getInputs(id),
         api.getPresets(id),
         api.getBluetooth(id),
-        api.diagnose(id),
       ]);
       if (cancelled) return;
       const failures: string[] = [];
-      const [q, i, p, b, d] = results;
+      const [q, i, p, b] = results;
       if (q.status === 'fulfilled') setQueue(q.value);
       else failures.push('queue');
       if (i.status === 'fulfilled') setInputs(i.value);
@@ -82,9 +90,30 @@ export function PlayerDetailPage() {
         setBluetoothSupported(false);
         failures.push('bluetooth');
       }
-      if (d.status === 'fulfilled') setDiag(d.value);
-      else failures.push('diagnostics');
       setDetailError(failures.length ? `Failed to load: ${failures.join(', ')}` : null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    const load = async () => {
+      try {
+        const value = await api.diagnose(id);
+        if (!cancelled) setDiag(value);
+        return value;
+      } catch {
+        return null;
+      }
+    };
+    void (async () => {
+      const first = await load();
+      if (cancelled || first?.uptime) return;
+      await new Promise((resolve) => window.setTimeout(resolve, 1500));
+      if (!cancelled) await load();
     })();
     return () => {
       cancelled = true;
@@ -182,6 +211,19 @@ export function PlayerDetailPage() {
   const activeInput = inputs.find((input) => input.selected);
   const upgradeView = upgrade && upgrade.device_id === id ? upgrade : null;
   const metaLine = streamQualityLabel(device.quality, device.stream_format);
+  const nowSec = health?.observed_at ?? device.last_seen ?? 0;
+  const lastDrop = health ? latestDrop(health, device.id) : null;
+  const presence = health
+    ? presenceSegments({
+        deviceId: device.id,
+        firstOnlineAt: health.first_online[device.id],
+        drops: health.drops,
+        now: nowSec,
+        windowSeconds: health.presence_window_seconds,
+      })
+    : [];
+  const slowPoll =
+    Boolean(health) && device.consecutive_failures >= (health?.circuit_failure_threshold ?? 5);
 
   return (
     <div className="app-shell dossier">
@@ -223,11 +265,10 @@ export function PlayerDetailPage() {
       <section className="panel dossier-now">
         <div className="dossier-now-grid">
           <div className="dossier-art" aria-hidden={!device.image}>
-            {device.image ? (
-              <img src={device.image} alt="" />
-            ) : (
-              <div className="dossier-art-empty">No artwork</div>
-            )}
+            <StickyArt
+              src={device.image}
+              empty={<div className="dossier-art-empty">No artwork</div>}
+            />
           </div>
           <div className="dossier-now-copy">
             <p className="card-meta">{isIdle ? 'Status' : 'Now playing'}</p>
@@ -247,7 +288,7 @@ export function PlayerDetailPage() {
             </p>
             {device.totlen > 0 && (
               <SeekBar
-                key={progressKey}
+                key={device.id}
                 initialSecs={device.secs}
                 totlen={device.totlen}
                 playing={['play', 'stream'].includes(device.state)}
@@ -305,9 +346,32 @@ export function PlayerDetailPage() {
               {device.muted ? `${META_SEP}muted` : ''}
             </dd>
           </div>
+          {health ? (
+            <div className="presence-block">
+              <dt>Last 12h</dt>
+              <dd>
+                <PresenceBar segments={presence} />
+              </dd>
+            </div>
+          ) : null}
+          <div>
+            <dt>Last drop</dt>
+            <dd>{lastDrop ? formatDropLine(lastDrop) : '—'}</dd>
+          </div>
+          <div>
+            <dt>Failures</dt>
+            <dd>
+              {device.consecutive_failures}
+              {slowPoll ? `${META_SEP}slow-poll` : ''}
+            </dd>
+          </div>
+          <div>
+            <dt>Last seen</dt>
+            <dd>{formatRelativeAge(device.last_seen, nowSec) || '—'}</dd>
+          </div>
           <div>
             <dt>Uptime</dt>
-            <dd>{diag?.uptime || '—'}</dd>
+            <dd>{formatPlayerUptime(diag?.uptime) || '—'}</dd>
           </div>
           <div>
             <dt>Sync</dt>

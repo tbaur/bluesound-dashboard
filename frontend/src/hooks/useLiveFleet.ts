@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { PlayerStatus, SyncState } from '@/api/types';
+import type { FleetHealthResponse, PlayerStatus, SyncState } from '@/api/types';
 import { useFleetStore } from '@/store/fleetStore';
 import { api } from '@/api/client';
 import { apiToken } from '@/api/auth';
@@ -72,6 +72,7 @@ export function useLiveFleet(): void {
   const upsertDevice = useFleetStore((s) => s.upsertDevice);
   const setConnection = useFleetStore((s) => s.setConnection);
   const setSync = useFleetStore((s) => s.setSync);
+  const setHealth = useFleetStore((s) => s.setHealth);
   const load = useFleetStore((s) => s.load);
   const pollFallback = useRef<number | undefined>(undefined);
 
@@ -86,6 +87,7 @@ export function useLiveFleet(): void {
             devices: PlayerStatus[];
             discovered_at?: number | null;
             sync?: SyncState;
+            health?: FleetHealthResponse;
           };
           setFleet(data.devices, data.discovered_at ?? null);
           if (data.sync) {
@@ -93,6 +95,7 @@ export function useLiveFleet(): void {
           } else {
             void api.getSync().then(setSync).catch(() => undefined);
           }
+          if (data.health) setHealth(data.health);
         } else if (event.type === 'device') {
           upsertDevice(event.data as PlayerStatus);
         }
@@ -117,5 +120,5 @@ export function useLiveFleet(): void {
       controller.abort();
       if (pollFallback.current) window.clearInterval(pollFallback.current);
     };
-  }, [load, setConnection, setFleet, setSync, upsertDevice]);
+  }, [load, setConnection, setFleet, setHealth, setSync, upsertDevice]);
 }

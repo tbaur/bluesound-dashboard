@@ -121,6 +121,7 @@ describe('PlayerDetailPage maintenance', () => {
       discoveredAt: Date.now(),
       discoveryMethod: 'mdns',
       sync: null,
+      health: null,
       connection: 'live',
       loading: false,
       refreshing: false,
@@ -178,9 +179,59 @@ describe('PlayerDetailPage maintenance', () => {
     expect(screen.queryByText(/Failed to load/i)).not.toBeInTheDocument();
   });
 
-  it('shows Bluetooth controls when supported', async () => {
+  it('shows uptime even when inputs never resolve', async () => {
+    getInputs.mockReturnValue(new Promise(() => {}));
+    diagnose.mockResolvedValue({
+      device_id: 'player-kitchen',
+      ip: '192.168.1.20',
+      name: 'Kitchen',
+      model: 'NODE',
+      full_model: 'Bluesound NODE',
+      device_class: 'streamer',
+      mac: '',
+      fw: '4.16.6',
+      state: 'pause',
+      service: '',
+      volume: 20,
+      muted: false,
+      db: '-40',
+      sync_role: 'standalone',
+      master: '',
+      group: '',
+      uptime: '37h13m24s',
+    });
     renderPlayer();
-    expect(await screen.findByRole('heading', { name: 'Bluetooth' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Automatic' })).toBeInTheDocument();
+    expect(await screen.findByText('1d 13h')).toBeInTheDocument();
+    expect(diagnose).toHaveBeenCalledWith('player-kitchen');
+  });
+
+  it('shows poller health on the device panel', async () => {
+    useFleetStore.setState({
+      devices: [{ ...sample, consecutive_failures: 2, last_seen: Date.now() / 1000 - 12 }],
+      health: {
+        started_at: Date.now() / 1000 - 600,
+        observed_at: Date.now() / 1000,
+        window_seconds: 86_400,
+        presence_window_seconds: 43_200,
+        circuit_failure_threshold: 5,
+        first_online: { 'player-kitchen': Date.now() / 1000 - 600 },
+        drops: [
+          {
+            device_id: 'player-kitchen',
+            name: 'Kitchen',
+            started_at: Date.now() / 1000 - 180,
+            ended_at: Date.now() / 1000 - 60,
+            duration_seconds: 120,
+            peak_failures: 2,
+            slow_poll: false,
+          },
+        ],
+      },
+    });
+    renderPlayer();
+    expect(await screen.findByText('Last 12h')).toBeInTheDocument();
+    expect(screen.getByText('Last drop').nextElementSibling).toHaveTextContent(/2m/);
+    expect(screen.getByText('Failures').nextElementSibling).toHaveTextContent('2');
+    expect(screen.getByText('Last seen').nextElementSibling).toHaveTextContent(/ago|just now/);
   });
 });

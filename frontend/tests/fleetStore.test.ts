@@ -89,4 +89,67 @@ describe('fleetStore', () => {
     expect(useFleetStore.getState().devices[0].muted).toBe(true);
     expect(useFleetStore.getState().devices[0].volume).toBe(0);
   });
+
+  it('keeps now-playing through an empty poll while playback is held', () => {
+    const playing = {
+      ...sample,
+      image: 'http://art/a.jpg',
+      totlen: 200,
+      secs: 40,
+      state: 'play',
+    };
+    useFleetStore.getState().setFleet([playing]);
+    useFleetStore.getState().holdPlayback('player-1', 10_000);
+    useFleetStore.getState().setFleet([
+      {
+        ...playing,
+        track: '',
+        artist: '',
+        album: '',
+        image: '',
+        totlen: 0,
+        secs: 0,
+        state: 'stop',
+      },
+    ]);
+    const device = useFleetStore.getState().devices[0];
+    expect(device.track).toBe('Track');
+    expect(device.artist).toBe('Artist');
+    expect(device.image).toBe('http://art/a.jpg');
+    expect(device.totlen).toBe(200);
+    expect(device.secs).toBe(40);
+    expect(device.state).toBe('play');
+  });
+
+  it('accepts a new track while playback is held', () => {
+    useFleetStore.getState().setFleet([{ ...sample, totlen: 200, secs: 40, state: 'play' }]);
+    useFleetStore.getState().holdPlayback('player-1', 10_000);
+    useFleetStore.getState().setFleet([
+      { ...sample, track: 'Next', artist: 'Other', totlen: 180, secs: 1, state: 'play' },
+    ]);
+    const device = useFleetStore.getState().devices[0];
+    expect(device.track).toBe('Next');
+    expect(device.secs).toBe(1);
+    expect(device.totlen).toBe(180);
+  });
+
+  it('holds playback for skip with no optimistic patch', async () => {
+    useFleetStore.getState().setFleet([sample]);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const finished = useFleetStore.getState().control('player-1', () => gate);
+    expect(useFleetStore.getState().playbackHoldUntil['player-1']).toBeGreaterThan(Date.now());
+    release();
+    await finished;
+    expect(useFleetStore.getState().playbackHoldUntil['player-1']).toBeGreaterThan(Date.now());
+  });
+
+  it('does not hold playback for a volume-only patch', async () => {
+    useFleetStore.getState().setFleet([sample]);
+    await useFleetStore.getState().control('player-1', async () => undefined, { volume: 40 });
+    expect(useFleetStore.getState().playbackHoldUntil['player-1'] ?? 0).toBe(0);
+    expect(useFleetStore.getState().devices[0].volume).toBe(40);
+  });
 });

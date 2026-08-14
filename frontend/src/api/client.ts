@@ -7,6 +7,7 @@ import type {
   DevicesResponse,
   FleetActionResponse,
   FleetFirmwareResponse,
+  FleetHealthResponse,
   FleetUpgradeResponse,
   PlayerStatus,
   Preset,
@@ -121,7 +122,8 @@ export const api = {
     request<void>(`/devices/${id}/repeat`, { method: 'POST', json: { state } }),
   adjustVolume: (id: string, delta: number) =>
     request<void>(`/devices/${id}/volume/adjust`, { method: 'POST', json: { delta } }),
-  diagnose: (id: string) => request<DiagnoseResponse>(`/devices/${id}/diagnose`),
+  diagnose: (id: string) =>
+    request<DiagnoseResponse>(`/devices/${id}/diagnose`, { cache: 'no-store' }),
   getSettings: (id: string, pageId: 'audio' | 'player') =>
     request<DeviceSettingsResponse>(`/devices/${id}/settings/${pageId}`),
   setSetting: (id: string, settingId: string, value: string, controlPath = '') =>
@@ -132,6 +134,7 @@ export const api = {
   getUpgrade: (id: string) => request<UpgradeStatus>(`/devices/${id}/upgrade`),
   fleetFirmware: () => request<FleetFirmwareResponse>('/fleet/firmware'),
   fleetUpgrades: () => request<FleetUpgradeResponse>('/fleet/upgrades'),
+  getFleetHealth: () => request<FleetHealthResponse>('/fleet/health'),
   reboot: (id: string) =>
     request<void>(`/devices/${id}/reboot`, { method: 'POST' }),
   setVolume: (id: string, level: number) =>

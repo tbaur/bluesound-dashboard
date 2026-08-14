@@ -91,6 +91,10 @@ async def test_poll_once_marks_exception_offline(
     updated = discovery.snapshot.devices[0]
     assert updated.status == "offline"
     assert updated.consecutive_failures == 1
+    drops = poller.health.snapshot().drops
+    assert len(drops) == 1
+    assert drops[0].device_id == "p1"
+    assert drops[0].ended_at is None
     await client.aclose()
 
 
