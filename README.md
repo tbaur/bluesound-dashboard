@@ -5,7 +5,7 @@
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 [![Node](https://img.shields.io/badge/node-22%2B-green.svg)](https://nodejs.org/)
 
-LAN dashboard for every BluOS player on your network — Nodes, Pulse, NAD CI zones, and the rest. It discovers the fleet (mDNS + LSDP), then keeps house-wide playback, volume, and grouping live in the browser. Custom Integration API **v1.7**.
+LAN dashboard for every BluOS player on your network — Nodes, Pulse, NAD CI zones, and the rest. It discovers the fleet (mDNS + LSDP), then keeps house-wide playback, volume, grouping, and presence live in the browser. Custom Integration API **v1.7**.
 
 Related CLI: [bluos-controller](https://github.com/tbaur/bluos-controller). This dashboard is self-contained (no runtime dependency on the CLI).
 
@@ -13,14 +13,14 @@ Related CLI: [bluos-controller](https://github.com/tbaur/bluos-controller). This
 
 ## Features
 
-- **House remote** — artwork, title/album/source, rooms on the stream, live seek, skip, shuffle/repeat, mute, and stop all. Space play/pause, arrows skip, M mute. When rooms are on different sources, pick which stream the remote drives.
+- **House remote** — artwork, title/album/source, rooms on the stream, live seek, skip, shuffle/repeat, mute, and stop all. Space play/pause, arrows skip, M mute. Skip keeps now-playing painted (no empty flash). When rooms are on different sources, pick which stream the remote drives.
 - **Fleet** — every player, live now-playing, A–Z or clustered by sync group (auto-switches to Sync when a group forms).
 - **Volume** — **Bluesound** (Nodes/Pulse) and **NAD CI S2** are separate sliders (different amp scales). CI S2 also has 42 / 50 / 60 / 70 chips.
 - **Multi-room** — create groups, add/remove followers, group all free rooms under a lead, ungroup one set or all. Break-all also clears orphans whose primary left the network.
-- **Per player** — queue, inputs, presets, Bluetooth, audio/player settings, diagnostics (including uptime), 12-hour presence, reboot.
-- **House page** — same remote, poller drop history (this process), firmware inventory + upgrade check, reboot all, ungroup all.
+- **Per player** — queue (loaded on open, optimistic reorder), inputs / presets / Bluetooth / settings when Advanced is opened, diagnostics (uptime from the device web UI), 12-hour presence bar and last drop, reboot. Leaving the page aborts diagnostics and upgrade scrapes so Skip and queue moves are not starved by the browser’s six connections per host.
+- **House page** — same remote, poller drop history for **this dashboard process** (24h, not persisted), firmware inventory + upgrade check, reboot all, ungroup all.
 - **Discovery** — on load, on rescan, and automatic re-scan when the fleet is empty. mDNS browses `_musc` and `_musp` (CI secondary zones as `ip:port`).
-- **Live updates** — BluOS etag long-poll (Status holds until skip/volume/track/group change) plus SSE, with REST fallback if the stream drops.
+- **Live updates** — per-player BluOS Status etag long-poll (holds until skip, volume, track, or grouping changes; `/SyncStatus` when `<syncStat>` moves) plus SSE. Seek interpolates between snaps. REST fallback if the stream drops.
 
 Ops (health, logs, LAN bind): [docs/RUNBOOK.md](docs/RUNBOOK.md).
 

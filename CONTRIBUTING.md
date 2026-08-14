@@ -57,9 +57,9 @@ When behavior users or operators can see changes, update the matching docs in th
 |-----------------|--------|
 | Features / product surface | [README.md](README.md) Features |
 | `BSD_*` env vars or defaults | [docs/CONFIGURATION.md](docs/CONFIGURATION.md) and [.env.example](.env.example) |
-| Start, health, failures, logs, sync ops | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
+| Start, health (`/healthz`, `/fleet/health`), failures, logs, sync ops | [docs/RUNBOOK.md](docs/RUNBOOK.md) |
 | Supported versions / vuln process | [SECURITY.md](SECURITY.md) |
-| Release process | [RELEASING.md](RELEASING.md) |
+| Release process or forcing a version (`Release-As`) | [RELEASING.md](RELEASING.md) |
 
 `CHANGELOG.md` is owned by [release-please](RELEASING.md) — do not hand-edit it for routine releases. Released version strings live in `.release-please-manifest.json`, `backend/app/__init__.py`, and `frontend/src/version.ts` (also release-please managed).
 

@@ -22,6 +22,14 @@ This project is a local LAN dashboard (not published to PyPI or npm). A release 
 
 A release therefore reduces to: merge the code PR(s), then merge the Release PR.
 
+To force a version (for example **1.0.0** instead of the next 0.x minor), put this footer on the squash-merged commit:
+
+```
+Release-As: 1.0.0
+```
+
+release-please then retitles the Release PR to that version. Do not hand-edit `.release-please-manifest.json` or `CHANGELOG.md` for that bump.
+
 ## Branch protection
 
 `main` should stay compatible with this flow:

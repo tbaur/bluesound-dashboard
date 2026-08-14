@@ -65,6 +65,8 @@ NAD CI multi-zone chassis expose each zone as its own BluOS endpoint (often `:11
 
 Each online player has a Status etag long-poll (Custom Integration API v1.7). The connection is held until playback/volume/grouping changes or `BSD_STATUS_LONG_POLL_SECONDS` elapses. `secs` is interpolated in the UI and does not wake the poll. `/SyncStatus` is fetched when Status `<syncStat>` changes (required for per-follower volume). Long-polls do not take a `BSD_MAX_CONCURRENT_DEVICE_CALLS` slot, so Skip/volume stay responsive while Status is held. Connect failures still use `BSD_DEVICE_HTTP_TIMEOUT` so a powered-off player is not waited out for 100s.
 
+Drop history (`GET /api/v1/fleet/health`, House page Health, player 12-hour presence) is **in-memory for this process** — it resets when the dashboard restarts. A miss only counts as a drop after that player was seen online. Device `:80/diagnostics` and `/upgrade` are not in the poll loop; the player page aborts those scrapes on leave so they cannot starve Skip.
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
 | `BSD_POLL_INTERVAL` | `3` | Retry delay after a missed Status long-poll (before circuit slow-poll) |
@@ -92,6 +94,7 @@ Each online player has a Status etag long-poll (Custom Integration API v1.7). Th
 - **Single-process deploy:** `make build`, then from `backend/` set `BSD_STATIC_DIR=../frontend/dist` (path is relative to the uvicorn working directory) — see [RUNBOOK.md](RUNBOOK.md).
 - **Discovery trouble:** try `BSD_DISCOVERY_METHOD=lsdp` or increase `BSD_DISCOVERY_TIMEOUT`.
 - **Slow VPN/firewall:** increase `BSD_DEVICE_HTTP_TIMEOUT` (connect/control) or `BSD_STATUS_LONG_POLL_SECONDS` (Status hold).
+- **Chatty players / 3s Status polls:** you are on a pre-1.0 process — restart so the etag long-poller is running.
 
 ## See also
 
