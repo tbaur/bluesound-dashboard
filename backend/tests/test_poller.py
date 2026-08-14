@@ -7,6 +7,7 @@ import asyncio
 import pytest
 
 from app.bluos.client import BluOSClient
+from app.bluos.status import PlayerSnapshot
 from app.config import Settings
 from app.discovery.service import DiscoveryService
 from app.models import PlayerStatus
@@ -23,6 +24,8 @@ def settings() -> Settings:
         circuit_failure_threshold=2,
         circuit_slow_poll_seconds=30,
         control_rate_limit_seconds=0,
+        long_poll_gap_seconds=0,
+        status_long_poll_seconds=10,
     )
 
 
@@ -59,10 +62,15 @@ async def test_poll_once_updates_online_devices(
 
     monkeypatch.setattr(events, "publish", capture)
 
-    async def fake_status(ip: str, device_id: str | None = None, node_id: str = ""):
-        return PlayerStatus(id="p1", ip=ip, name="K", status="online", volume=9)
+    async def fake_load(target: str, **_kwargs: object) -> PlayerSnapshot:
+        ip = str(target).split(":")[0]
+        return PlayerSnapshot(
+            player=PlayerStatus(id="p1", ip=ip, name="K", status="online", volume=9),
+            status_etag="e1",
+            sync_stat="s1",
+        )
 
-    monkeypatch.setattr(client, "get_player_status", fake_status)
+    monkeypatch.setattr(client, "load_player", fake_load)
     await poller._poll_once()
     assert discovery.snapshot.devices[0].volume == 9
     assert poller._failures.get("p1") == 0
@@ -86,7 +94,7 @@ async def test_poll_once_marks_exception_offline(
     async def boom(*_args, **_kwargs):
         raise RuntimeError("device down")
 
-    monkeypatch.setattr(client, "get_player_status", boom)
+    monkeypatch.setattr(client, "load_player", boom)
     await poller._poll_once()
     updated = discovery.snapshot.devices[0]
     assert updated.status == "offline"
@@ -160,9 +168,8 @@ async def test_run_loop_records_cycle_error(
     async def boom() -> None:
         raise RuntimeError("cycle failed")
 
-    monkeypatch.setattr(poller, "_poll_once", boom)
-    # Shorten wait so the loop cycles quickly under test.
-    poller.settings = settings.model_copy(update={"poll_interval": 1})
+    monkeypatch.setattr(poller, "_reconcile", boom)
+    poller.settings = settings.model_copy(update={"long_poll_gap_seconds": 0.5})
     poller.start()
     for _ in range(40):
         if poller.last_error:

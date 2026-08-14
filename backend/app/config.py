@@ -47,6 +47,12 @@ class Settings(BaseSettings):
 
     poll_interval: float = Field(default=3.0, ge=1.0, le=60.0)
     device_http_timeout: float = Field(default=3.0, ge=0.5, le=30.0)
+    # Custom Integration API v1.7: Status long-poll timeout (recommended 100s).
+    status_long_poll_seconds: float = Field(default=100.0, ge=10.0, le=180.0)
+    # Extra read time so httpx does not cut off the player at exactly timeout=.
+    long_poll_read_slack_seconds: float = Field(default=5.0, ge=1.0, le=30.0)
+    # v1.7: consecutive Status/SyncStatus GETs for the same resource ≥ 1s apart.
+    long_poll_gap_seconds: float = Field(default=1.0, ge=0.0, le=10.0)
     max_concurrent_device_calls: int = Field(default=20, ge=1, le=50)
     control_rate_limit_seconds: float = Field(default=0.1, ge=0.0, le=5.0)
     api_rate_limit_seconds: float = Field(default=0.05, ge=0.0, le=5.0)

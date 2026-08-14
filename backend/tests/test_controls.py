@@ -57,10 +57,17 @@ async def test_poller_refresh_one(settings: Settings, monkeypatch: pytest.Monkey
     events = EventBus()
     poller = StatusPoller(settings, discovery, client, events)
 
-    async def fake_status(ip: str, device_id: str | None = None, node_id: str = ""):
-        return PlayerStatus(id="p1", ip=ip, name="K", status="online", volume=11)
+    async def fake_load(target: str, **_kwargs: object):
+        from app.bluos.status import PlayerSnapshot
 
-    monkeypatch.setattr(client, "get_player_status", fake_status)
+        ip = str(target).split(":")[0]
+        return PlayerSnapshot(
+            player=PlayerStatus(id="p1", ip=ip, name="K", status="online", volume=11),
+            status_etag="e1",
+            sync_stat="s1",
+        )
+
+    monkeypatch.setattr(client, "load_player", fake_load)
     updated = await poller.refresh_one("p1")
     assert updated is not None
     assert updated.volume == 11

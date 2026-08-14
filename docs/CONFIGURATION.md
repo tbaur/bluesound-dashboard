@@ -2,7 +2,7 @@
 
 All settings are environment variables with the `BSD_` prefix. Copy [.env.example](../.env.example) to `.env` in the **repo root** (or export variables in your shell) before starting the backend. The settings loader resolves the repo-root `.env` even when uvicorn is started from `backend/` (cwd-relative `.env` is also accepted as a fallback).
 
-Defaults are tuned for local development: bind localhost, discover via mDNS+LSDP, poll every few seconds, and throttle both outbound BluOS calls and inbound mutating API requests (plus expensive GETs such as `/api/v1/fleet/upgrades`).
+Defaults are tuned for local development: bind localhost, discover via mDNS+LSDP, long-poll player Status, and throttle both outbound BluOS calls and inbound mutating API requests (plus expensive GETs such as `/api/v1/fleet/upgrades`).
 
 Local UI is Vite on **port 8765** (`make run` / `frontend` `npm run dev`). CORS defaults match that origin. The API defaults to **port 8000**.
 
@@ -63,10 +63,15 @@ NAD CI multi-zone chassis expose each zone as its own BluOS endpoint (often `:11
 
 ## Polling and device HTTP
 
+Each online player has a Status etag long-poll (Custom Integration API v1.7). The connection is held until playback/volume/grouping changes or `BSD_STATUS_LONG_POLL_SECONDS` elapses. `secs` is interpolated in the UI and does not wake the poll. `/SyncStatus` is fetched when Status `<syncStat>` changes (required for per-follower volume). Long-polls do not take a `BSD_MAX_CONCURRENT_DEVICE_CALLS` slot, so Skip/volume stay responsive while Status is held. Connect failures still use `BSD_DEVICE_HTTP_TIMEOUT` so a powered-off player is not waited out for 100s.
+
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `BSD_POLL_INTERVAL` | `3` | Status poll interval |
-| `BSD_DEVICE_HTTP_TIMEOUT` | `3` | Per-device HTTP timeout |
+| `BSD_POLL_INTERVAL` | `3` | Retry delay after a missed Status long-poll (before circuit slow-poll) |
+| `BSD_STATUS_LONG_POLL_SECONDS` | `100` | `/Status?timeout=` hold time (v1.7 recommended 100s; minimum 10s) |
+| `BSD_LONG_POLL_READ_SLACK_SECONDS` | `5` | Extra HTTP read time so httpx does not cut off the player at exactly `timeout=` |
+| `BSD_LONG_POLL_GAP_SECONDS` | `1` | Minimum spacing between consecutive `/Status` GETs on the same player (v1.7 requires ≥ 1s) |
+| `BSD_DEVICE_HTTP_TIMEOUT` | `3` | Connect/control HTTP timeout (long-poll read timeout is separate) |
 | `BSD_MAX_CONCURRENT_DEVICE_CALLS` | `20` | Cap concurrent BluOS HTTP calls |
 | `BSD_CONTROL_RATE_LIMIT_SECONDS` | `0.1` | Per **device endpoint** (`ip:port`) spacing for outbound BluOS control and web-UI writes |
 | `BSD_API_RATE_LIMIT_SECONDS` | `0.05` | Minimum spacing per **HTTP client IP + method + path** for mutating API requests and expensive GETs (`/api/v1/fleet/upgrades`). Excess requests return **429** (they do not wait). Cheap in-memory GETs such as `/api/v1/devices` and `/api/v1/sync` are not throttled so overlapping UI loads (mount, Strict Mode, in-flight reload) cannot fail. Outbound BluOS control still uses sleep-based spacing (`BSD_CONTROL_RATE_LIMIT_SECONDS`). Behind a reverse proxy, set `BSD_TRUSTED_PROXIES` so `X-Forwarded-For` is honored |
@@ -86,7 +91,7 @@ NAD CI multi-zone chassis expose each zone as its own BluOS endpoint (often `:11
 
 - **Single-process deploy:** `make build`, then from `backend/` set `BSD_STATIC_DIR=../frontend/dist` (path is relative to the uvicorn working directory) — see [RUNBOOK.md](RUNBOOK.md).
 - **Discovery trouble:** try `BSD_DISCOVERY_METHOD=lsdp` or increase `BSD_DISCOVERY_TIMEOUT`.
-- **Slow VPN/firewall:** increase `BSD_DEVICE_HTTP_TIMEOUT` or `BSD_POLL_INTERVAL`.
+- **Slow VPN/firewall:** increase `BSD_DEVICE_HTTP_TIMEOUT` (connect/control) or `BSD_STATUS_LONG_POLL_SECONDS` (Status hold).
 
 ## See also
 
