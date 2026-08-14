@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { HousePage } from '@/components/HousePage';
 import type { PlayerStatus, SyncState } from '@/api/types';
+import { LIVE_HOUSE_SESSION } from '@/lib/houseSession';
 import { useFleetStore } from '@/store/fleetStore';
 
 const fleetUpgrades = vi.fn();
@@ -122,6 +123,8 @@ describe('HousePage actions', () => {
       toast: null,
       volumeHoldUntil: {},
       playbackHoldUntil: {},
+      muteHoldUntil: {},
+      houseSession: LIVE_HOUSE_SESSION,
       globalVolumeHoldUntil: 0,
       syncHoldUntil: 0,
       lastAudibleVolume: {},

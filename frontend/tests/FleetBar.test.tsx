@@ -3,6 +3,7 @@ import { MemoryRouter } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FleetBar } from '@/components/GlobalVolumeControl';
 import type { PlayerStatus, SyncState } from '@/api/types';
+import { LIVE_HOUSE_SESSION } from '@/lib/houseSession';
 import { useFleetStore } from '@/store/fleetStore';
 
 vi.mock('@/components/VolumeNudgeButtons', () => ({
@@ -62,6 +63,7 @@ describe('FleetBar house remote art', () => {
     useFleetStore.setState({
       devices: [],
       sync: null,
+      houseSession: LIVE_HOUSE_SESSION,
       fleetMuteAll: vi.fn(),
       fleetPauseAll: vi.fn(),
       fleetStopAll: vi.fn(),
@@ -175,7 +177,7 @@ describe('FleetBar house remote art', () => {
     const art = screen.getByRole('link', {
       name: /Now playing artwork — open Joni/,
     });
-    expect(art).toHaveAttribute('href', '/house');
+    expect(art).toHaveAttribute('href', '/player/1');
   });
 
   it('hides a single house stream when multiple sources are playing, and lets you pick one', () => {
